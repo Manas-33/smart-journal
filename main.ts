@@ -16,13 +16,26 @@ import { ConversationManager } from "./conversation_manager";
 interface SmartJournalSettings {
   llmEndpoint: string;
   modelName: string;
+  weeklySummaryPath: string;
+  personas: { name: string; prompt: string }[];
+  defaultTemperature: number;
+  defaultMaxTokens: number;
 }
 
 const DEFAULT_SETTINGS: SmartJournalSettings = {
   llmEndpoint: "http://localhost:1234",
-  modelName: "qwen/qwen3-vl-4b",
+  modelName: "llama-3.2-3b-instruct",
+  weeklySummaryPath: "Weekly Summaries",
+  personas: [
+      { name: "Default", prompt: "You are a helpful assistant for a personal journal." },
+      { name: "Obsidian Architect", prompt: "You are an expert in Obsidian and Personal Knowledge Management (PKM). Help me organize notes, suggest links using [[WikiLinks]], and recommend tags. Format output in clean Markdown." },
+      { name: "Zettelkasten Guide", prompt: "You are a Zettelkasten method expert. Help me break down complex ideas into atomic notes and find connections between them." },
+      { name: "Daily Reflector", prompt: "You are a compassionate journaling companion. Help me reflect on my day, identify patterns, and set intentions. Use a warm, supportive tone." },
+      { name: "Concise Summarizer", prompt: "You are a precise summarizer. Create concise summaries of the provided text, using bullet points and bold text for key insights." }
+  ],
+  defaultTemperature: 0.7,
+  defaultMaxTokens: 2000,
 };
-
 export default class SmartJournalPlugin extends Plugin {
   settings: SmartJournalSettings;
   llmService: LLMService;
@@ -42,9 +55,8 @@ export default class SmartJournalPlugin extends Plugin {
 
     this.registerView(
       VIEW_TYPE_CHAT,
-      (leaf) => new ChatView(leaf, this.llmService, this.conversationManager)
+      (leaf) => new ChatView(leaf, this.llmService, this.conversationManager, this.settings)
     );
-
     this.addRibbonIcon("message-square", "Chat with Journal", () => {
       this.activateView();
     });
@@ -248,5 +260,64 @@ class SmartJournalSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+
+    new Setting(containerEl)
+      .setName("Weekly Summary Path")
+      .setDesc("Folder to save weekly summaries")
+      .addText((text) =>
+        text
+          .setPlaceholder("Weekly Summaries")
+          .setValue(this.plugin.settings.weeklySummaryPath)
+          .onChange(async (value) => {
+            this.plugin.settings.weeklySummaryPath = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+        .setName("Default Temperature")
+        .setDesc("Controls randomness (0.0 - 1.0)")
+        .addSlider(slider => slider
+            .setLimits(0, 1, 0.05)
+            .setValue(this.plugin.settings.defaultTemperature)
+            .setDynamicTooltip()
+            .onChange(async (value) => {
+                this.plugin.settings.defaultTemperature = value;
+                await this.plugin.saveSettings();
+            }));
+
+    new Setting(containerEl)
+        .setName("Default Max Tokens")
+        .setDesc("Maximum length of response")
+        .addText(text => text
+            .setValue(String(this.plugin.settings.defaultMaxTokens))
+            .onChange(async (value) => {
+                const num = parseInt(value);
+                if (!isNaN(num)) {
+                    this.plugin.settings.defaultMaxTokens = num;
+                    await this.plugin.saveSettings();
+                }
+            }));
+
+    containerEl.createEl("h3", { text: "Personas" });
+    
+    // Simple JSON editor for personas for now to avoid complex UI
+    new Setting(containerEl)
+        .setName("Personas JSON")
+        .setDesc("Edit personas as JSON array of {name, prompt}")
+        .addTextArea(text => text
+            .setValue(JSON.stringify(this.plugin.settings.personas, null, 2))
+            .setPlaceholder("[]")
+            .onChange(async (value) => {
+                try {
+                    const parsed = JSON.parse(value);
+                    if (Array.isArray(parsed)) {
+                        this.plugin.settings.personas = parsed;
+                        await this.plugin.saveSettings();
+                    }
+                } catch (e) {
+                    // Invalid JSON, ignore
+                }
+            }));
   }
 }

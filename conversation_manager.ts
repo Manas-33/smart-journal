@@ -10,6 +10,11 @@ export interface Conversation {
   id: string;
   title: string;
   messages: Message[];
+  config?: {
+      systemPrompt?: string;
+      temperature?: number;
+      maxTokens?: number;
+  };
   createdAt: number;
   updatedAt: number;
 }

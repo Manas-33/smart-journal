@@ -14,6 +14,8 @@ import {
 } from "obsidian";
 import { LLMService } from "./llm_service";
 import { ConversationManager, Conversation, Message } from "./conversation_manager";
+// @ts-ignore
+import html2pdf from "html2pdf.js";
 
 export const VIEW_TYPE_CHAT = "smart-journal-chat-view";
 
@@ -28,7 +30,8 @@ export class ChatView extends ItemView {
   constructor(
     leaf: WorkspaceLeaf,
     llmService: LLMService,
-    conversationManager: ConversationManager
+    conversationManager: ConversationManager,
+    private settings: any // Using any to avoid circular dependency or need to export settings interface
   ) {
     super(leaf);
     this.llmService = llmService;
@@ -265,6 +268,15 @@ export class ChatView extends ItemView {
         );
 
         menu.addItem((item) =>
+            item
+              .setTitle("Export to PDF")
+              .setIcon("file-text")
+              .onClick(async () => {
+                  await this.exportConversationToPDF(conv);
+              })
+          );
+
+        menu.addItem((item) =>
           item
             .setTitle("Delete")
             .setIcon("trash")
@@ -294,6 +306,203 @@ export class ChatView extends ItemView {
     }
   }
 
+  async exportConversationToPDF(conversation: Conversation) {
+      new Notice("Generating PDF...");
+      
+      // Create a temporary container for rendering
+      // We use a visible overlay to ensure html2canvas captures it correctly.
+      // This also acts as a "loading" indicator of sorts.
+      const tempContainer = document.body.createEl("div");
+      tempContainer.style.position = "fixed";
+      tempContainer.style.left = "0";
+      tempContainer.style.top = "0";
+      tempContainer.style.width = "100%";
+      tempContainer.style.height = "100%";
+      tempContainer.style.zIndex = "9999";
+      tempContainer.style.backgroundColor = "white";
+      tempContainer.style.overflowY = "auto"; // Allow scrolling if needed for debugging, though html2canvas captures full height
+      tempContainer.style.padding = "40px";
+      
+      // Content Container (centered A4-ish look)
+      const contentContainer = tempContainer.createEl("div");
+      contentContainer.style.width = "700px"; // Reduced from 800px to prevent overflow
+      contentContainer.style.maxWidth = "100%";
+      contentContainer.style.margin = "0 auto";
+      contentContainer.style.color = "black";
+      contentContainer.style.backgroundColor = "white";
+      contentContainer.style.fontFamily = "Arial, sans-serif";
+      contentContainer.style.fontSize = "14px";
+      contentContainer.style.lineHeight = "1.6";
+      contentContainer.style.padding = "20px";
+      contentContainer.style.boxSizing = "border-box";
+      contentContainer.style.wordWrap = "break-word";
+      contentContainer.style.overflowWrap = "break-word";
+      
+      // Header
+      const h1 = contentContainer.createEl("h1", { text: conversation.title });
+      h1.style.fontSize = "24px";
+      h1.style.marginBottom = "10px";
+      h1.style.color = "black";
+      h1.style.fontWeight = "bold";
+      
+      const exportDate = contentContainer.createEl("p", { text: `Exported on ${new Date().toLocaleDateString()}` });
+      exportDate.style.fontSize = "12px";
+      exportDate.style.color = "#666";
+      exportDate.style.marginBottom = "20px";
+      
+      const hr = contentContainer.createEl("hr");
+      hr.style.border = "none";
+      hr.style.borderTop = "2px solid #ddd";
+      hr.style.marginBottom = "20px";
+
+      // Messages
+      for (const msg of conversation.messages) {
+          const msgDiv = contentContainer.createEl("div");
+          msgDiv.style.marginBottom = "25px";
+          msgDiv.style.paddingBottom = "15px";
+          msgDiv.style.borderBottom = "1px solid #e0e0e0";
+          msgDiv.style.pageBreakInside = "avoid"; // Try to keep messages together
+
+          const role = msg.role === "user" ? "You" : "Journal";
+          const time = new Date(msg.timestamp).toLocaleTimeString();
+          
+          const header = msgDiv.createEl("div");
+          header.style.fontWeight = "bold";
+          header.style.marginBottom = "8px";
+          header.style.fontSize = "13px";
+          header.style.color = msg.role === "user" ? "#2e86de" : "#10ac84";
+          header.innerText = `${role} (${time})`;
+
+          const content = msgDiv.createEl("div");
+          content.style.color = "black";
+          content.style.fontSize = "14px";
+          content.style.lineHeight = "1.6";
+          
+          // Use MarkdownRenderer
+          await MarkdownRenderer.renderMarkdown(msg.content, content, "", this.component);
+          
+          // Apply comprehensive styling to all rendered elements
+          const allElements = content.querySelectorAll("*");
+          allElements.forEach((el: HTMLElement) => {
+              el.style.color = "black";
+              el.style.fontFamily = "Arial, sans-serif";
+              
+              // Style specific elements
+              if (el.tagName === "P") {
+                  el.style.marginBottom = "10px";
+                  el.style.marginTop = "0";
+                  el.style.pageBreakInside = "avoid";
+              } else if (el.tagName === "H1") {
+                  el.style.fontSize = "20px";
+                  el.style.marginTop = "15px";
+                  el.style.marginBottom = "10px";
+                  el.style.fontWeight = "bold";
+                  el.style.pageBreakInside = "avoid";
+                  el.style.pageBreakAfter = "avoid";
+              } else if (el.tagName === "H2") {
+                  el.style.fontSize = "18px";
+                  el.style.marginTop = "12px";
+                  el.style.marginBottom = "8px";
+                  el.style.fontWeight = "bold";
+                  el.style.pageBreakInside = "avoid";
+                  el.style.pageBreakAfter = "avoid";
+              } else if (el.tagName === "H3") {
+                  el.style.fontSize = "16px";
+                  el.style.marginTop = "10px";
+                  el.style.marginBottom = "6px";
+                  el.style.fontWeight = "bold";
+                  el.style.pageBreakInside = "avoid";
+                  el.style.pageBreakAfter = "avoid";
+              } else if (el.tagName === "UL" || el.tagName === "OL") {
+                  el.style.marginLeft = "20px";
+                  el.style.marginBottom = "10px";
+                  el.style.pageBreakInside = "avoid";
+              } else if (el.tagName === "LI") {
+                  el.style.marginBottom = "5px";
+                  el.style.pageBreakInside = "avoid";
+              } else if (el.tagName === "CODE") {
+                  el.style.backgroundColor = "#f5f5f5";
+                  el.style.padding = "2px 4px";
+                  el.style.borderRadius = "3px";
+                  el.style.fontFamily = "Consolas, Monaco, monospace";
+                  el.style.fontSize = "13px";
+                  el.style.wordWrap = "break-word";
+                  el.style.overflowWrap = "break-word";
+              } else if (el.tagName === "PRE") {
+                  el.style.backgroundColor = "#f5f5f5";
+                  el.style.padding = "10px";
+                  el.style.borderRadius = "5px";
+                  el.style.overflow = "hidden";
+                  el.style.marginBottom = "10px";
+                  el.style.whiteSpace = "pre-wrap";
+                  el.style.wordWrap = "break-word";
+                  el.style.maxWidth = "100%";
+                  el.style.pageBreakInside = "avoid";
+              } else if (el.tagName === "BLOCKQUOTE") {
+                  el.style.borderLeft = "4px solid #ddd";
+                  el.style.paddingLeft = "15px";
+                  el.style.marginLeft = "0";
+                  el.style.color = "#666";
+                  el.style.pageBreakInside = "avoid";
+              } else if (el.tagName === "A") {
+                  el.style.color = "#2e86de";
+                  el.style.textDecoration = "underline";
+              } else if (el.tagName === "IMG") {
+                  el.style.maxWidth = "100%";
+                  el.style.height = "auto";
+                  el.style.pageBreakInside = "avoid";
+              }
+          });
+      }
+
+    // Wait a moment for images/rendering to settle
+    await new Promise(resolve => setTimeout(resolve, 1000)); // Increased timeout
+
+    console.log("PDF Container Content Length:", contentContainer.innerHTML.length);
+      try {
+          const opt = {
+            margin: 10,
+            filename: `${conversation.title}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { 
+                scale: 2,
+                useCORS: true,
+                logging: true,
+                windowWidth: 1200 // Force a desktop width
+            },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+          };
+
+          // Capture the contentContainer, not the full overlay
+          const pdfData = await html2pdf().from(contentContainer).set(opt as any).output('arraybuffer');
+          
+          const folderPath = "Smart Journal/PDFs";
+          if (!await this.app.vault.adapter.exists(folderPath)) {
+              await this.app.vault.createFolder(folderPath);
+          }
+
+          const fileName = `${conversation.title.replace(/[^a-z0-9]/gi, '_')}.pdf`;
+          const filePath = `${folderPath}/${fileName}`;
+          
+          // Check if exists
+          if (await this.app.vault.adapter.exists(filePath)) {
+              // Append timestamp
+              const newName = `${conversation.title.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`;
+              await this.app.vault.createBinary(`${folderPath}/${newName}`, pdfData);
+              new Notice(`PDF saved to ${folderPath}/${newName}`);
+          } else {
+              await this.app.vault.createBinary(filePath, pdfData);
+              new Notice(`PDF saved to ${filePath}`);
+          }
+
+      } catch (e) {
+          console.error("PDF Export Error", e);
+          new Notice("Failed to generate PDF");
+      } finally {
+          tempContainer.remove();
+      }
+  }
+
   renderChatArea(container: HTMLElement) {
     // Messages Area
     this.messagesContainer = container.createEl("div", { cls: "chat-messages" });
@@ -318,8 +527,26 @@ export class ChatView extends ItemView {
 
     const buttonContainer = inputContainer.createEl("div");
     buttonContainer.style.display = "flex";
-    buttonContainer.style.justifyContent = "flex-end";
+    buttonContainer.style.justifyContent = "space-between"; // Changed to space-between
     buttonContainer.style.marginTop = "10px";
+
+    // Settings Button
+    const settingsBtn = new ButtonComponent(buttonContainer);
+    settingsBtn.setIcon("settings");
+    settingsBtn.setTooltip("Chat Settings");
+    settingsBtn.onClick(() => {
+        if (this.currentConversation) {
+            new ConversationSettingsModal(
+                this.app, 
+                this.currentConversation, 
+                this.settings,
+                async (newConfig) => {
+                    this.currentConversation!.config = newConfig;
+                    await this.conversationManager.saveConversation(this.currentConversation!);
+                }
+            ).open();
+        }
+    });
 
     const sendBtn = new ButtonComponent(buttonContainer);
     sendBtn.setButtonText("Send");
@@ -373,12 +600,24 @@ export class ChatView extends ItemView {
       const indicator = this.showTypingIndicator();
       try {
         // Prepare context
-        const contextMessages = this.currentConversation!.messages.map(m => ({
-            role: m.role,
-            content: m.content
-        }));
+        const systemPrompt = this.currentConversation!.config?.systemPrompt || 
+                             this.settings.personas[0]?.prompt || 
+                             "You are a helpful assistant for a personal journal.";
+                             
+        const contextMessages = [
+            { role: "system", content: systemPrompt },
+            ...this.currentConversation!.messages.map(m => ({
+                role: m.role,
+                content: m.content
+            }))
+        ];
 
-        const answer = await this.llmService.completion(contextMessages);
+        const config = {
+            temperature: this.currentConversation!.config?.temperature ?? this.settings.defaultTemperature,
+            max_tokens: this.currentConversation!.config?.maxTokens ?? this.settings.defaultMaxTokens
+        };
+
+        const answer = await this.llmService.completion(contextMessages, config);
         indicator.remove();
 
         // Add Assistant Message
@@ -761,6 +1000,103 @@ export class ExportModal extends Modal {
             }
         });
     }
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
+
+export class ConversationSettingsModal extends Modal {
+  private conversation: Conversation;
+  private settings: any;
+  private onSave: (config: any) => void;
+  private tempConfig: any;
+
+  constructor(app: App, conversation: Conversation, settings: any, onSave: (config: any) => void) {
+    super(app);
+    this.conversation = conversation;
+    this.settings = settings;
+    this.onSave = onSave;
+    
+    // Initialize temp config with existing values or defaults
+    this.tempConfig = {
+        systemPrompt: conversation.config?.systemPrompt || settings.personas[0]?.prompt || "",
+        temperature: conversation.config?.temperature ?? settings.defaultTemperature,
+        maxTokens: conversation.config?.maxTokens ?? settings.defaultMaxTokens
+    };
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h2", { text: "Chat Settings" });
+
+    // Persona Selector
+    new Setting(contentEl)
+        .setName("Persona")
+        .setDesc("Select a preset persona")
+        .addDropdown(dropdown => {
+            this.settings.personas.forEach((p: any) => {
+                dropdown.addOption(p.name, p.name);
+            });
+            dropdown.setValue("Custom"); // Default to showing current prompt
+            dropdown.onChange((value) => {
+                const persona = this.settings.personas.find((p: any) => p.name === value);
+                if (persona) {
+                    this.tempConfig.systemPrompt = persona.prompt;
+                    // Update the text area below
+                    const textArea = contentEl.querySelector("textarea");
+                    if (textArea) textArea.value = persona.prompt;
+                }
+            });
+        });
+
+    // System Prompt
+    new Setting(contentEl)
+        .setName("System Prompt")
+        .setDesc("Customize the behavior of the assistant")
+        .addTextArea(text => text
+            .setValue(this.tempConfig.systemPrompt)
+            .setPlaceholder("You are a helpful assistant...")
+            .onChange((value) => {
+                this.tempConfig.systemPrompt = value;
+            }));
+
+    // Temperature
+    new Setting(contentEl)
+        .setName("Temperature")
+        .setDesc("Controls randomness (0.0 - 1.0)")
+        .addSlider(slider => slider
+            .setLimits(0, 1, 0.05)
+            .setValue(this.tempConfig.temperature)
+            .setDynamicTooltip()
+            .onChange((value) => {
+                this.tempConfig.temperature = value;
+            }));
+
+    // Max Tokens
+    new Setting(contentEl)
+        .setName("Max Tokens")
+        .setDesc("Maximum length of response")
+        .addText(text => text
+            .setValue(String(this.tempConfig.maxTokens))
+            .onChange((value) => {
+                const num = parseInt(value);
+                if (!isNaN(num)) {
+                    this.tempConfig.maxTokens = num;
+                }
+            }));
+
+    new Setting(contentEl).addButton((btn) =>
+      btn
+        .setButtonText("Save")
+        .setCta()
+        .onClick(() => {
+          this.onSave(this.tempConfig);
+          this.close();
+        })
+    );
   }
 
   onClose() {

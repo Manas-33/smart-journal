@@ -14,19 +14,17 @@ export class LLMService {
     this.model = model;
   }
 
-  async completion(messages: { role: string; content: string }[]): Promise<string> {
+  async completion(
+    messages: { role: string; content: string }[],
+    config?: { temperature?: number; max_tokens?: number }
+  ): Promise<string> {
     const url = `${this.endpoint}/v1/chat/completions`;
 
     const body = {
       model: this.model,
-      messages: [
-        {
-          role: "system",
-          content: "You are a helpful assistant for a personal journal.",
-        },
-        ...messages,
-      ],
-      temperature: 0.7,
+      messages: messages,
+      temperature: config?.temperature ?? 0.7,
+      max_tokens: config?.max_tokens ?? -1, // -1 is often used for unlimited/default
     };
 
     const params: RequestUrlParam = {

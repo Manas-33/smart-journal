@@ -8,6 +8,9 @@ import {
   Component,
   setIcon,
   Menu,
+  Modal,
+  Setting,
+  App,
 } from "obsidian";
 import { LLMService } from "./llm_service";
 import { ConversationManager, Conversation, Message } from "./conversation_manager";
@@ -254,15 +257,10 @@ export class ChatView extends ItemView {
             .setTitle("Rename")
             .setIcon("pencil")
             .onClick(async () => {
-               // Simple prompt for renaming (could be improved with a modal)
-               // For now, we'll just use a browser prompt as a quick solution, 
-               // or we could replace the text with an input.
-               // Let's use a simple input replacement.
-               const newTitle = prompt("Enter new chat name:", conv.title);
-               if (newTitle && newTitle !== conv.title) {
+               new RenameModal(this.app, conv.title, async (newTitle) => {
                    await this.conversationManager.renameConversation(conv.id, newTitle);
                    await this.renderSidebar();
-               }
+               }).open();
             })
         );
 
@@ -327,10 +325,25 @@ export class ChatView extends ItemView {
     sendBtn.setButtonText("Send");
     sendBtn.setCta();
 
-    const sendMessage = async () => {
-      const content = inputEl.getValue();
-      if (!content.trim()) return;
+    sendBtn.onClick(async () => {
+        const content = inputEl.getValue();
+        if (!content.trim()) return;
+        inputEl.setValue("");
+        await this.processUserMessage(content);
+    });
 
+    inputEl.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        const content = inputEl.getValue();
+        if (!content.trim()) return;
+        inputEl.setValue("");
+        this.processUserMessage(content);
+      }
+    });
+  }
+
+  async processUserMessage(content: string) {
       if (!this.currentConversation) {
         await this.createNewConversation();
       }
@@ -344,8 +357,6 @@ export class ChatView extends ItemView {
       this.currentConversation!.messages.push(userMsg);
       await this.conversationManager.saveConversation(this.currentConversation!);
       this.appendMessage(userMsg);
-      
-      inputEl.setValue("");
 
       // Generate Title if it's the first message and title is "New Chat"
       if (this.currentConversation!.messages.length === 1 && this.currentConversation!.title === "New Chat") {
@@ -355,6 +366,10 @@ export class ChatView extends ItemView {
           this.renderSidebar();
       }
 
+      await this.generateAssistantResponse();
+  }
+
+  async generateAssistantResponse() {
       try {
         new Notice("Thinking...");
         // Prepare context
@@ -388,16 +403,6 @@ export class ChatView extends ItemView {
         };
         this.appendMessage(errorMsg);
       }
-    };
-
-    sendBtn.onClick(sendMessage);
-
-    inputEl.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-      }
-    });
   }
 
   async createNewConversation() {
@@ -441,7 +446,117 @@ export class ChatView extends ItemView {
     header.style.fontSize = "0.8em";
     header.style.opacity = "0.7";
     header.style.marginBottom = "5px";
-    header.innerText = message.role === "user" ? "You" : "Journal";
+    header.style.display = "flex";
+    header.style.justifyContent = "space-between";
+    header.style.alignItems = "center";
+    
+    const roleSpan = header.createEl("span", { text: message.role === "user" ? "You" : "Journal" });
+
+    const actionsDiv = header.createEl("div", { cls: "message-actions" });
+    actionsDiv.style.display = "flex";
+    actionsDiv.style.gap = "5px";
+
+    // Edit Button (User only)
+    if (message.role === "user") {
+        const editBtn = actionsDiv.createEl("div", { cls: "message-action-btn" });
+        setIcon(editBtn, "pencil");
+        editBtn.style.cursor = "pointer";
+        editBtn.style.opacity = "0.6";
+        editBtn.title = "Edit message";
+        
+        editBtn.addEventListener("mouseenter", () => editBtn.style.opacity = "1");
+        editBtn.addEventListener("mouseleave", () => editBtn.style.opacity = "0.6");
+
+        editBtn.addEventListener("click", () => {
+            // Replace content with textarea
+            content.empty();
+            const editArea = new TextAreaComponent(content);
+            editArea.setValue(message.content);
+            editArea.inputEl.style.width = "100%";
+            editArea.inputEl.style.minHeight = "60px";
+            
+            const btnContainer = content.createEl("div");
+            btnContainer.style.display = "flex";
+            btnContainer.style.justifyContent = "flex-end";
+            btnContainer.style.gap = "5px";
+            btnContainer.style.marginTop = "5px";
+
+            const saveBtn = new ButtonComponent(btnContainer);
+            saveBtn.setButtonText("Save & Submit");
+            saveBtn.setCta();
+            
+            const cancelBtn = new ButtonComponent(btnContainer);
+            cancelBtn.setButtonText("Cancel");
+
+            cancelBtn.onClick(() => {
+                content.empty();
+                content.innerText = message.content;
+            });
+
+            saveBtn.onClick(async () => {
+                const newContent = editArea.getValue();
+                if (!newContent.trim() || newContent === message.content) {
+                    content.empty();
+                    content.innerText = message.content;
+                    return;
+                }
+
+                // Find index of this message
+                const index = this.currentConversation!.messages.indexOf(message);
+                if (index !== -1) {
+                    // Truncate history to this point
+                    this.currentConversation!.messages = this.currentConversation!.messages.slice(0, index);
+                    await this.conversationManager.saveConversation(this.currentConversation!);
+                    
+                    // Clear UI from this point onwards (simple way: reload conversation)
+                    // But we want to trigger send immediately.
+                    
+                    // We need to manually trigger the send flow with the new content
+                    // First, update UI to reflect truncation
+                    this.messagesContainer.empty();
+                    for (const msg of this.currentConversation!.messages) {
+                        this.appendMessage(msg);
+                    }
+                    
+                    // Now simulate sending the new message
+                    // We can reuse the logic inside renderChatArea but it's scoped.
+                    // Let's refactor sendMessage to be a class method or just duplicate logic for now to avoid massive refactor
+                    await this.processUserMessage(newContent);
+                }
+            });
+        });
+    }
+
+    // Regenerate Button (Assistant only)
+    if (message.role === "assistant") {
+        const regenBtn = actionsDiv.createEl("div", { cls: "message-action-btn" });
+        setIcon(regenBtn, "refresh-cw");
+        regenBtn.style.cursor = "pointer";
+        regenBtn.style.opacity = "0.6";
+        regenBtn.title = "Regenerate response";
+
+        regenBtn.addEventListener("mouseenter", () => regenBtn.style.opacity = "1");
+        regenBtn.addEventListener("mouseleave", () => regenBtn.style.opacity = "0.6");
+
+        regenBtn.addEventListener("click", async () => {
+             // Find index of this message
+             const index = this.currentConversation!.messages.indexOf(message);
+             if (index !== -1) {
+                 // Remove this message
+                 this.currentConversation!.messages.splice(index, 1);
+                 await this.conversationManager.saveConversation(this.currentConversation!);
+                 
+                 // Reload UI to remove this message
+                 this.messagesContainer.empty();
+                 for (const msg of this.currentConversation!.messages) {
+                     this.appendMessage(msg);
+                 }
+
+                 // Trigger generation based on history up to this point
+                 await this.generateAssistantResponse();
+             }
+        });
+    }
 
     const content = msgDiv.createEl("div", { cls: "message-content" });
     
@@ -456,5 +571,61 @@ export class ChatView extends ItemView {
 
   async onClose() {
     this.component.unload();
+  }
+}
+
+export class RenameModal extends Modal {
+  private currentName: string;
+  private onSubmit: (newName: string) => void;
+
+  constructor(app: App, currentName: string, onSubmit: (newName: string) => void) {
+    super(app);
+    this.currentName = currentName;
+    this.onSubmit = onSubmit;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h2", { text: "Rename Chat" });
+
+    let newName = this.currentName;
+
+    new Setting(contentEl)
+      .setName("Name")
+      .addText((text) =>
+        text
+          .setValue(this.currentName)
+          .onChange((value) => {
+            newName = value;
+          })
+      );
+
+    new Setting(contentEl).addButton((btn) =>
+      btn
+        .setButtonText("Save")
+        .setCta()
+        .onClick(() => {
+          this.close();
+          this.onSubmit(newName);
+        })
+    );
+    
+    // Focus input on open
+    const input = contentEl.querySelector("input");
+    if (input) {
+        input.focus();
+        input.select();
+        input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                this.close();
+                this.onSubmit(newName);
+            }
+        });
+    }
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
   }
 }

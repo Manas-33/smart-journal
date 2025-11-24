@@ -1,0 +1,10 @@
+{
+	"id": "smart-journal",
+	"name": "Smart Journal",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "A smart journal plugin that uses local LLMs to tag notes, summarize weeks, and extract action items.",
+	"author": "Sketched",
+	"authorUrl": "https://github.com/manas-33/smart-journal",
+	"isDesktopOnly": true
+}

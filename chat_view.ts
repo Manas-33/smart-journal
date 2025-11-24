@@ -370,8 +370,8 @@ export class ChatView extends ItemView {
   }
 
   async generateAssistantResponse() {
+      const indicator = this.showTypingIndicator();
       try {
-        new Notice("Thinking...");
         // Prepare context
         const contextMessages = this.currentConversation!.messages.map(m => ({
             role: m.role,
@@ -379,6 +379,7 @@ export class ChatView extends ItemView {
         }));
 
         const answer = await this.llmService.completion(contextMessages);
+        indicator.remove();
 
         // Add Assistant Message
         const assistantMsg: Message = {
@@ -394,6 +395,7 @@ export class ChatView extends ItemView {
         this.renderSidebar();
 
       } catch (error: any) {
+        indicator.remove();
         new Notice("Error generating response");
         console.error(error);
         const errorMsg: Message = {
@@ -452,111 +454,90 @@ export class ChatView extends ItemView {
     
     const roleSpan = header.createEl("span", { text: message.role === "user" ? "You" : "Journal" });
 
+    // Timestamp
+    const date = new Date(message.timestamp);
+    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timestampSpan = header.createEl("span", { text: timeStr });
+    timestampSpan.style.fontSize = "0.9em";
+    timestampSpan.style.marginLeft = "10px";
+    timestampSpan.style.opacity = "0.8";
+
     const actionsDiv = header.createEl("div", { cls: "message-actions" });
     actionsDiv.style.display = "flex";
     actionsDiv.style.gap = "5px";
 
-    // Edit Button (User only)
-    if (message.role === "user") {
-        const editBtn = actionsDiv.createEl("div", { cls: "message-action-btn" });
-        setIcon(editBtn, "pencil");
-        editBtn.style.cursor = "pointer";
-        editBtn.style.opacity = "0.6";
-        editBtn.title = "Edit message";
-        
-        editBtn.addEventListener("mouseenter", () => editBtn.style.opacity = "1");
-        editBtn.addEventListener("mouseleave", () => editBtn.style.opacity = "0.6");
+    // Menu Button
+    const menuBtn = actionsDiv.createEl("div", { cls: "message-action-btn" });
+    setIcon(menuBtn, "more-horizontal");
+    menuBtn.style.cursor = "pointer";
+    menuBtn.style.opacity = "0.6";
+    menuBtn.title = "Message actions";
+    
+    menuBtn.addEventListener("mouseenter", () => menuBtn.style.opacity = "1");
+    menuBtn.addEventListener("mouseleave", () => menuBtn.style.opacity = "0.6");
 
-        editBtn.addEventListener("click", () => {
-            // Replace content with textarea
-            content.empty();
-            const editArea = new TextAreaComponent(content);
-            editArea.setValue(message.content);
-            editArea.inputEl.style.width = "100%";
-            editArea.inputEl.style.minHeight = "60px";
-            
-            const btnContainer = content.createEl("div");
-            btnContainer.style.display = "flex";
-            btnContainer.style.justifyContent = "flex-end";
-            btnContainer.style.gap = "5px";
-            btnContainer.style.marginTop = "5px";
+    menuBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const menu = new Menu();
 
-            const saveBtn = new ButtonComponent(btnContainer);
-            saveBtn.setButtonText("Save & Submit");
-            saveBtn.setCta();
-            
-            const cancelBtn = new ButtonComponent(btnContainer);
-            cancelBtn.setButtonText("Cancel");
+        // Copy
+        menu.addItem((item) => 
+            item
+                .setTitle("Copy")
+                .setIcon("copy")
+                .onClick(async () => {
+                    await navigator.clipboard.writeText(message.content);
+                    new Notice("Copied to clipboard");
+                })
+        );
 
-            cancelBtn.onClick(() => {
-                content.empty();
-                content.innerText = message.content;
-            });
+        // Edit (User only)
+        if (message.role === "user") {
+            menu.addItem((item) => 
+                item
+                    .setTitle("Edit")
+                    .setIcon("pencil")
+                    .onClick(() => {
+                        this.editMessage(message, msgDiv, content);
+                    })
+            );
+        }
 
-            saveBtn.onClick(async () => {
-                const newContent = editArea.getValue();
-                if (!newContent.trim() || newContent === message.content) {
-                    content.empty();
-                    content.innerText = message.content;
-                    return;
-                }
+        // Regenerate (Assistant only)
+        if (message.role === "assistant") {
+            menu.addItem((item) => 
+                item
+                    .setTitle("Regenerate")
+                    .setIcon("refresh-cw")
+                    .onClick(async () => {
+                        await this.regenerateMessage(message);
+                    })
+            );
+        }
 
-                // Find index of this message
-                const index = this.currentConversation!.messages.indexOf(message);
-                if (index !== -1) {
-                    // Truncate history to this point
-                    this.currentConversation!.messages = this.currentConversation!.messages.slice(0, index);
-                    await this.conversationManager.saveConversation(this.currentConversation!);
-                    
-                    // Clear UI from this point onwards (simple way: reload conversation)
-                    // But we want to trigger send immediately.
-                    
-                    // We need to manually trigger the send flow with the new content
-                    // First, update UI to reflect truncation
-                    this.messagesContainer.empty();
-                    for (const msg of this.currentConversation!.messages) {
-                        this.appendMessage(msg);
-                    }
-                    
-                    // Now simulate sending the new message
-                    // We can reuse the logic inside renderChatArea but it's scoped.
-                    // Let's refactor sendMessage to be a class method or just duplicate logic for now to avoid massive refactor
-                    await this.processUserMessage(newContent);
-                }
-            });
-        });
-    }
+        // Delete
+        menu.addItem((item) => 
+            item
+                .setTitle("Delete")
+                .setIcon("trash")
+                .setWarning(true)
+                .onClick(async () => {
+                    await this.deleteMessage(message);
+                })
+        );
 
-    // Regenerate Button (Assistant only)
-    if (message.role === "assistant") {
-        const regenBtn = actionsDiv.createEl("div", { cls: "message-action-btn" });
-        setIcon(regenBtn, "refresh-cw");
-        regenBtn.style.cursor = "pointer";
-        regenBtn.style.opacity = "0.6";
-        regenBtn.title = "Regenerate response";
+        // Export to Note
+        menu.addItem((item) => 
+            item
+                .setTitle("Export to Note")
+                .setIcon("file-plus")
+                .onClick(async () => {
+                    await this.exportMessageToNote(message);
+                })
+        );
 
-        regenBtn.addEventListener("mouseenter", () => regenBtn.style.opacity = "1");
-        regenBtn.addEventListener("mouseleave", () => regenBtn.style.opacity = "0.6");
-
-        regenBtn.addEventListener("click", async () => {
-             // Find index of this message
-             const index = this.currentConversation!.messages.indexOf(message);
-             if (index !== -1) {
-                 // Remove this message
-                 this.currentConversation!.messages.splice(index, 1);
-                 await this.conversationManager.saveConversation(this.currentConversation!);
-                 
-                 // Reload UI to remove this message
-                 this.messagesContainer.empty();
-                 for (const msg of this.currentConversation!.messages) {
-                     this.appendMessage(msg);
-                 }
-
-                 // Trigger generation based on history up to this point
-                 await this.generateAssistantResponse();
-             }
-        });
-    }
+        menu.showAtMouseEvent(e);
+    });
 
     const content = msgDiv.createEl("div", { cls: "message-content" });
     
@@ -567,6 +548,107 @@ export class ChatView extends ItemView {
     }
 
     this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+  }
+
+  editMessage(message: Message, msgDiv: HTMLElement, contentEl: HTMLElement) {
+      contentEl.empty();
+      const editArea = new TextAreaComponent(contentEl);
+      editArea.setValue(message.content);
+      editArea.inputEl.style.width = "100%";
+      editArea.inputEl.style.minHeight = "60px";
+      
+      const btnContainer = contentEl.createEl("div");
+      btnContainer.style.display = "flex";
+      btnContainer.style.justifyContent = "flex-end";
+      btnContainer.style.gap = "5px";
+      btnContainer.style.marginTop = "5px";
+
+      const saveBtn = new ButtonComponent(btnContainer);
+      saveBtn.setButtonText("Save & Submit");
+      saveBtn.setCta();
+      
+      const cancelBtn = new ButtonComponent(btnContainer);
+      cancelBtn.setButtonText("Cancel");
+
+      cancelBtn.onClick(() => {
+          contentEl.empty();
+          contentEl.innerText = message.content;
+      });
+
+      saveBtn.onClick(async () => {
+          const newContent = editArea.getValue();
+          if (!newContent.trim() || newContent === message.content) {
+              contentEl.empty();
+              contentEl.innerText = message.content;
+              return;
+          }
+
+          const index = this.currentConversation!.messages.indexOf(message);
+          if (index !== -1) {
+              this.currentConversation!.messages = this.currentConversation!.messages.slice(0, index);
+              await this.conversationManager.saveConversation(this.currentConversation!);
+              
+              this.messagesContainer.empty();
+              for (const msg of this.currentConversation!.messages) {
+                  this.appendMessage(msg);
+              }
+              
+              await this.processUserMessage(newContent);
+          }
+      });
+  }
+
+  async regenerateMessage(message: Message) {
+      const index = this.currentConversation!.messages.indexOf(message);
+      if (index !== -1) {
+          this.currentConversation!.messages.splice(index, 1);
+          await this.conversationManager.saveConversation(this.currentConversation!);
+          
+          this.messagesContainer.empty();
+          for (const msg of this.currentConversation!.messages) {
+              this.appendMessage(msg);
+          }
+
+          await this.generateAssistantResponse();
+      }
+  }
+
+  async deleteMessage(message: Message) {
+      const index = this.currentConversation!.messages.indexOf(message);
+      if (index !== -1) {
+          this.currentConversation!.messages.splice(index, 1);
+          await this.conversationManager.saveConversation(this.currentConversation!);
+          
+          this.messagesContainer.empty();
+          for (const msg of this.currentConversation!.messages) {
+              this.appendMessage(msg);
+          }
+      }
+  }
+
+  async exportMessageToNote(message: Message) {
+      const defaultName = `Chat Export ${new Date().toISOString().replace(/[:.]/g, "-")}`;
+      new ExportModal(this.app, defaultName, async (fileName) => {
+          const folderPath = "Smart Journal/Exports";
+          if (!await this.app.vault.adapter.exists(folderPath)) {
+              await this.app.vault.createFolder(folderPath);
+          }
+          
+          const fullPath = `${folderPath}/${fileName}.md`;
+          await this.app.vault.create(fullPath, message.content);
+          new Notice(`Exported to ${fullPath}`);
+      }).open();
+  }
+
+  showTypingIndicator() {
+      const indicator = this.messagesContainer.createEl("div", { cls: "typing-indicator" });
+      indicator.innerText = "Journal is thinking...";
+      indicator.style.opacity = "0.7";
+      indicator.style.fontStyle = "italic";
+      indicator.style.marginBottom = "10px";
+      indicator.style.padding = "10px";
+      this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+      return indicator;
   }
 
   async onClose() {
@@ -619,6 +701,63 @@ export class RenameModal extends Modal {
             if (e.key === "Enter") {
                 this.close();
                 this.onSubmit(newName);
+            }
+        });
+    }
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
+
+export class ExportModal extends Modal {
+  private defaultName: string;
+  private onSubmit: (fileName: string) => void;
+
+  constructor(app: App, defaultName: string, onSubmit: (fileName: string) => void) {
+    super(app);
+    this.defaultName = defaultName;
+    this.onSubmit = onSubmit;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h2", { text: "Export to Note" });
+    contentEl.createEl("p", { text: "File will be saved in 'Smart Journal/Exports'" });
+
+    let fileName = this.defaultName;
+
+    new Setting(contentEl)
+      .setName("Note Name")
+      .addText((text) =>
+        text
+          .setValue(this.defaultName)
+          .onChange((value) => {
+            fileName = value;
+          })
+      );
+
+    new Setting(contentEl).addButton((btn) =>
+      btn
+        .setButtonText("Export")
+        .setCta()
+        .onClick(() => {
+          this.close();
+          this.onSubmit(fileName);
+        })
+    );
+    
+    // Focus input on open
+    const input = contentEl.querySelector("input");
+    if (input) {
+        input.focus();
+        input.select();
+        input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                this.close();
+                this.onSubmit(fileName);
             }
         });
     }

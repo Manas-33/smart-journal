@@ -101,33 +101,93 @@ export class ChatView extends ItemView {
     (msgDiv as HTMLElement).style.setProperty("-moz-user-select", "text");
     (msgDiv as HTMLElement).style.setProperty("-ms-user-select", "text");
 
-    const senderEl = msgDiv.createEl("strong", { text: sender + ": " });
+    const headerEl = msgDiv.createEl("div", { cls: "chat-message-header" });
+    headerEl.style.display = "flex";
+    headerEl.style.justifyContent = "space-between";
+    headerEl.style.alignItems = "center";
+    headerEl.style.marginBottom = "5px";
+
+    const senderEl = headerEl.createEl("strong", { text: sender + ": " });
     senderEl.style.color =
       sender === "User" ? "var(--text-accent)" : "var(--text-normal)";
 
-    // Create a container for markdown content
+    const copyButton = headerEl.createEl("button", { cls: "chat-copy-button" });
+    copyButton.innerHTML = "📋";
+    copyButton.style.background = "none";
+    copyButton.style.border = "none";
+    copyButton.style.cursor = "pointer";
+    copyButton.style.opacity = "0.6";
+    copyButton.style.fontSize = "14px";
+    copyButton.style.padding = "2px 6px";
+    copyButton.style.borderRadius = "3px";
+    copyButton.title = "Copy message";
+
+    copyButton.addEventListener("mouseenter", () => {
+      copyButton.style.opacity = "1";
+      copyButton.style.backgroundColor = "var(--background-modifier-hover)";
+    });
+    copyButton.addEventListener("mouseleave", () => {
+      copyButton.style.opacity = "0.6";
+      copyButton.style.backgroundColor = "transparent";
+    });
+
+    copyButton.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        new Notice("Message copied to clipboard!");
+        const originalText = copyButton.innerHTML;
+        copyButton.innerHTML = "✓";
+        copyButton.style.color = "var(--text-success)";
+        setTimeout(() => {
+          copyButton.innerHTML = originalText;
+          copyButton.style.color = "";
+        }, 2000);
+      } catch (err) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand("copy");
+          new Notice("Message copied to clipboard!");
+          const originalText = copyButton.innerHTML;
+          copyButton.innerHTML = "✓";
+          copyButton.style.color = "var(--text-success)";
+          setTimeout(() => {
+            copyButton.innerHTML = originalText;
+            copyButton.style.color = "";
+          }, 2000);
+        } catch (fallbackErr) {
+          new Notice("Failed to copy message");
+          console.error("Copy failed:", fallbackErr);
+        }
+        document.body.removeChild(textArea);
+      }
+    });
+
+
     const contentEl = msgDiv.createEl("div", { cls: "chat-message-content" });
     contentEl.style.marginTop = "5px";
-    // Ensure text is selectable
+
     contentEl.style.userSelect = "text";
     (contentEl as HTMLElement).style.setProperty("-webkit-user-select", "text");
     (contentEl as HTMLElement).style.setProperty("-moz-user-select", "text");
     (contentEl as HTMLElement).style.setProperty("-ms-user-select", "text");
 
-    // Render markdown for assistant messages, plain text for user messages
+
     if (sender === "Journal" || sender === "System") {
       MarkdownRenderer.renderMarkdown(
         text,
         contentEl,
-        "", // sourcePath - empty for chat messages
+        "", 
         this.component
       );
     } else {
-      // For user messages, show as plain text (or you can render markdown here too)
+
       contentEl.createEl("span", { text: text });
     }
-
-    // Auto-scroll to bottom
     container.scrollTop = container.scrollHeight;
   }
 

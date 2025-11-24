@@ -14,7 +14,7 @@ export class LLMService {
     this.model = model;
   }
 
-  async completion(prompt: string): Promise<string> {
+  async completion(messages: { role: string; content: string }[]): Promise<string> {
     const url = `${this.endpoint}/v1/chat/completions`;
 
     const body = {
@@ -24,7 +24,7 @@ export class LLMService {
           role: "system",
           content: "You are a helpful assistant for a personal journal.",
         },
-        { role: "user", content: prompt },
+        ...messages,
       ],
       temperature: 0.7,
     };

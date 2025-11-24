@@ -13,7 +13,7 @@ export class Processor {
         Note Content:
         ${noteContent}`;
 
-        const response = await this.llmService.completion(prompt);
+        const response = await this.llmService.completion([{ role: "user", content: prompt }]);
         return response.split(',').map(tag => tag.trim());
     }
 
@@ -23,7 +23,7 @@ export class Processor {
         Note Content:
         ${noteContent}`;
 
-        const response = await this.llmService.completion(prompt);
+        const response = await this.llmService.completion([{ role: "user", content: prompt }]);
         if (response.trim() === "None") return [];
         
         return response.split('\n').filter(line => line.trim().length > 0);
@@ -36,6 +36,6 @@ export class Processor {
         Notes:
         ${joinedNotes}`;
 
-        return await this.llmService.completion(prompt);
+        return await this.llmService.completion([{ role: "user", content: prompt }]);
     }
 }

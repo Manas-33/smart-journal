@@ -11,6 +11,7 @@ import {
 import { LLMService } from "./llm_service";
 import { Processor } from "./processor";
 import { ChatView, VIEW_TYPE_CHAT } from "./chat_view";
+import { ConversationManager } from "./conversation_manager";
 
 interface SmartJournalSettings {
   llmEndpoint: string;
@@ -26,6 +27,7 @@ export default class SmartJournalPlugin extends Plugin {
   settings: SmartJournalSettings;
   llmService: LLMService;
   processor: Processor;
+  conversationManager: ConversationManager;
 
   async onload() {
     await this.loadSettings();
@@ -35,10 +37,12 @@ export default class SmartJournalPlugin extends Plugin {
       this.settings.modelName
     );
     this.processor = new Processor(this.llmService);
+    this.conversationManager = new ConversationManager(this.app);
+    await this.conversationManager.initialize();
 
     this.registerView(
       VIEW_TYPE_CHAT,
-      (leaf) => new ChatView(leaf, this.llmService)
+      (leaf) => new ChatView(leaf, this.llmService, this.conversationManager)
     );
 
     this.addRibbonIcon("message-square", "Chat with Journal", () => {

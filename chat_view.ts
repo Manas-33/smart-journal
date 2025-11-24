@@ -61,7 +61,7 @@ export class ChatView extends ItemView {
     buttonEl.setButtonText("Send");
     buttonEl.setCta();
     buttonEl.buttonEl.style.marginTop = "10px";
-    buttonEl.onClick(async () => {
+    const sendMessage = async () => {
       const question = inputEl.getValue();
       if (!question.trim()) return;
 
@@ -86,6 +86,15 @@ export class ChatView extends ItemView {
           "System",
           `Error: Could not retrieve answer. ${errorMsg.substring(0, 100)}`
         );
+      }
+    };
+
+    buttonEl.onClick(sendMessage);
+
+    inputEl.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
       }
     });
   }
@@ -167,7 +176,6 @@ export class ChatView extends ItemView {
       }
     });
 
-
     const contentEl = msgDiv.createEl("div", { cls: "chat-message-content" });
     contentEl.style.marginTop = "5px";
 
@@ -176,16 +184,9 @@ export class ChatView extends ItemView {
     (contentEl as HTMLElement).style.setProperty("-moz-user-select", "text");
     (contentEl as HTMLElement).style.setProperty("-ms-user-select", "text");
 
-
     if (sender === "Journal" || sender === "System") {
-      MarkdownRenderer.renderMarkdown(
-        text,
-        contentEl,
-        "", 
-        this.component
-      );
+      MarkdownRenderer.renderMarkdown(text, contentEl, "", this.component);
     } else {
-
       contentEl.createEl("span", { text: text });
     }
     container.scrollTop = container.scrollHeight;

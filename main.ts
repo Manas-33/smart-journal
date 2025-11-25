@@ -1,17 +1,11 @@
-import {
-  App,
-  Editor,
-  MarkdownView,
-  Notice,
-  Plugin,
-  PluginSettingTab,
-  Setting,
-  WorkspaceLeaf,
-} from "obsidian";
+import { App, Plugin, PluginSettingTab, Setting, WorkspaceLeaf, Notice, MarkdownView, Editor } from "obsidian";
 import { LLMService } from "./llm_service";
 import { Processor } from "./processor";
 import { ChatView, VIEW_TYPE_CHAT } from "./chat_view";
 import { ConversationManager } from "./conversation_manager";
+import { EmbeddingService } from "./embedding_service";
+import { VectorStore } from "./vector_store";
+import { RAGService } from "./rag_service";
 
 interface SmartJournalSettings {
   llmEndpoint: string;
@@ -20,11 +14,21 @@ interface SmartJournalSettings {
   personas: { name: string; prompt: string }[];
   defaultTemperature: number;
   defaultMaxTokens: number;
+  // RAG Settings
+  ragEnabled: boolean;
+  embeddingModel: string;
+  chunkSize: number;
+  chunkOverlap: number;
+  topK: number;
+  similarityThreshold: number;
+  autoIndexOnChange: boolean;
+  excludedFolders: string[];
+  chromaDbPath: string;
 }
 
 const DEFAULT_SETTINGS: SmartJournalSettings = {
   llmEndpoint: "http://localhost:1234",
-  modelName: "llama-3.2-3b-instruct",
+  modelName: "qwen/qwen3-vl-4b",
   weeklySummaryPath: "Weekly Summaries",
   personas: [
       { name: "Default", prompt: "You are a helpful assistant for a personal journal." },
@@ -35,12 +39,25 @@ const DEFAULT_SETTINGS: SmartJournalSettings = {
   ],
   defaultTemperature: 0.7,
   defaultMaxTokens: 2000,
+  // RAG Settings
+  ragEnabled: true,
+  embeddingModel: "text-embedding-nomic-embed-text-v1.5",
+  chunkSize: 200,
+  chunkOverlap: 30,
+  topK: 6,
+  similarityThreshold: 0.4,
+  autoIndexOnChange: true,
+  excludedFolders: [],
+  chromaDbPath: ".obsidian/plugins/smart-journal/chromadb",
 };
 export default class SmartJournalPlugin extends Plugin {
   settings: SmartJournalSettings;
   llmService: LLMService;
   processor: Processor;
   conversationManager: ConversationManager;
+  embeddingService: EmbeddingService;
+  vectorStore: VectorStore;
+  ragService: RAGService;
 
   async onload() {
     await this.loadSettings();
@@ -53,9 +70,45 @@ export default class SmartJournalPlugin extends Plugin {
     this.conversationManager = new ConversationManager(this.app);
     await this.conversationManager.initialize();
 
+    // Initialize RAG services if enabled
+    if (this.settings.ragEnabled) {
+      try {
+        this.embeddingService = new EmbeddingService(
+          this.settings.llmEndpoint,
+          this.settings.embeddingModel,
+          this.settings.chunkSize,
+          this.settings.chunkOverlap
+        );
+
+        const vaultPath = (this.app.vault.adapter as any).basePath;
+        const vectorStorePath = `${vaultPath}/${this.settings.chromaDbPath}/vectors.json`;
+        this.vectorStore = new VectorStore(this.app, vectorStorePath);
+
+        this.ragService = new RAGService(
+          this.app,
+          this.embeddingService,
+          this.vectorStore,
+          this.settings.excludedFolders,
+          this.settings.autoIndexOnChange
+        );
+
+        await this.ragService.initialize();
+        new Notice("RAG Service initialized");
+      } catch (error) {
+        console.error("Failed to initialize RAG:", error);
+        new Notice("Failed to initialize RAG. Check console for details.");
+      }
+    }
+
     this.registerView(
       VIEW_TYPE_CHAT,
-      (leaf) => new ChatView(leaf, this.llmService, this.conversationManager, this.settings)
+      (leaf) => new ChatView(
+        leaf,
+        this.llmService,
+        this.conversationManager,
+        this.settings,
+        this.settings.ragEnabled ? this.ragService : undefined
+      )
     );
     this.addRibbonIcon("message-square", "Chat with Journal", () => {
       this.activateView();
@@ -178,6 +231,111 @@ export default class SmartJournalPlugin extends Plugin {
       },
     });
 
+    // RAG Commands
+    if (this.settings.ragEnabled && this.ragService) {
+      this.addCommand({
+        id: "index-vault-rag",
+        name: "Index Vault for RAG",
+        callback: async () => {
+          new Notice("Indexing vault... This may take a while.");
+          try {
+            let progress = 0;
+            let total = 0;
+            await this.ragService.indexVault((current, totalFiles) => {
+              progress = current;
+              total = totalFiles;
+              if (current % 10 === 0 || current === totalFiles) {
+                new Notice(`Indexed ${current}/${totalFiles} files`);
+              }
+            });
+            new Notice(`Indexing complete! Indexed ${total} files.`);
+          } catch (error) {
+            console.error("Indexing error:", error);
+            new Notice("Error indexing vault. Check console.");
+          }
+        },
+      });
+
+      this.addCommand({
+        id: "clear-rag-index",
+        name: "Clear RAG Index",
+        callback: async () => {
+          if (confirm("Are you sure you want to clear the RAG index? This cannot be undone.")) {
+            try {
+              await this.ragService.clearIndex();
+              new Notice("RAG index cleared");
+            } catch (error) {
+              console.error("Clear index error:", error);
+              new Notice("Error clearing index. Check console.");
+            }
+          }
+        },
+      });
+
+      this.addCommand({
+        id: "rag-index-stats",
+        name: "View RAG Index Statistics",
+        callback: async () => {
+          try {
+            const stats = await this.ragService.getIndexStats();
+            new Notice(`RAG Index: ${stats.totalDocuments} document chunks indexed`);
+          } catch (error) {
+            console.error("Stats error:", error);
+            new Notice("Error getting stats. Check console.");
+          }
+        },
+      });
+
+      this.addCommand({
+        id: "debug-rag-retrieval",
+        name: "Debug RAG Retrieval",
+        callback: async () => {
+          // Prompt user for a query
+          // Since we don't have a native prompt UI, we'll use a simple workaround
+          // or just log the last chat message's retrieval.
+          // Better: Use a Modal to ask for input.
+          
+          // For now, let's use a simple prompt via the window object (not ideal but works for debug)
+          // Or better, let's just use the last active file's content or selection?
+          // Let's keep it simple: Log the top chunks for the currently selected text or just a fixed test.
+          
+          // Actually, let's create a simple Modal for input.
+          // Since I can't easily create a new class file right now without more overhead,
+          // I'll implement a simple inline Modal class or just use a hardcoded test for now?
+          // No, let's use the standard Obsidian Modal API if possible.
+          
+          // Let's just add a command that retrieves context for the *current selection* in the editor.
+          const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+          if (activeView) {
+            const editor = activeView.editor;
+            const selection = editor.getSelection();
+            if (selection) {
+              new Notice(`Debugging retrieval for: "${selection.substring(0, 20)}..."`);
+              console.log(`--- RAG DEBUG: "${selection}" ---`);
+              try {
+                const results = await this.ragService.retrieveContext(selection, 10, 0);
+                console.log("Retrieved Chunks:", results.retrievedChunks);
+                new Notice(`Retrieved ${results.retrievedChunks.length} chunks. Check console for details.`);
+                
+                results.retrievedChunks.forEach((chunk: any, i: number) => {
+                  console.log(`[${i}] Score: ${chunk.similarity.toFixed(4)} | File: ${chunk.metadata.filePath}`);
+                  console.log(chunk.content);
+                  console.log("---");
+                });
+              } catch (e) {
+                console.error("Debug error:", e);
+                new Notice("Error during debug retrieval");
+              }
+            } else {
+              new Notice("Please select some text to test retrieval");
+            }
+          } else {
+            new Notice("Open a note and select text to debug retrieval");
+          }
+        },
+      });
+    }
+
     this.addSettingTab(new SmartJournalSettingTab(this.app, this));
   }
 
@@ -299,6 +457,116 @@ class SmartJournalSettingTab extends PluginSettingTab {
                 }
             }));
 
+    // RAG Settings Section
+    containerEl.createEl("h2", { text: "RAG (Retrieval-Augmented Generation) Settings" });
+
+    new Setting(containerEl)
+        .setName("Enable RAG")
+        .setDesc("Enable retrieval-augmented generation to use your vault notes as context")
+        .addToggle(toggle => toggle
+            .setValue(this.plugin.settings.ragEnabled)
+            .onChange(async (value) => {
+                this.plugin.settings.ragEnabled = value;
+                await this.plugin.saveSettings();
+                new Notice("Please reload Obsidian for RAG changes to take effect");
+            }));
+
+    new Setting(containerEl)
+        .setName("Embedding Model")
+        .setDesc("Name of the embedding model (e.g., text-embedding-nomic-embed-text-v1.5)")
+        .addText(text => text
+            .setValue(this.plugin.settings.embeddingModel)
+            .onChange(async (value) => {
+                this.plugin.settings.embeddingModel = value;
+                await this.plugin.saveSettings();
+            }));
+
+    new Setting(containerEl)
+        .setName("Chunk Size")
+        .setDesc("Number of words per chunk (default: 512)")
+        .addText(text => text
+            .setValue(String(this.plugin.settings.chunkSize))
+            .onChange(async (value) => {
+                const num = parseInt(value);
+                if (!isNaN(num) && num > 0) {
+                    this.plugin.settings.chunkSize = num;
+                    await this.plugin.saveSettings();
+                }
+            }));
+
+    new Setting(containerEl)
+        .setName("Chunk Overlap")
+        .setDesc("Number of overlapping words between chunks (default: 50)")
+        .addText(text => text
+            .setValue(String(this.plugin.settings.chunkOverlap))
+            .onChange(async (value) => {
+                const num = parseInt(value);
+                if (!isNaN(num) && num >= 0) {
+                    this.plugin.settings.chunkOverlap = num;
+                    await this.plugin.saveSettings();
+                }
+            }));
+
+    new Setting(containerEl)
+        .setName("Top K Results")
+        .setDesc("Number of most relevant chunks to retrieve (default: 5)")
+        .addSlider(slider => slider
+            .setLimits(1, 20, 1)
+            .setValue(this.plugin.settings.topK)
+            .setDynamicTooltip()
+            .onChange(async (value) => {
+                this.plugin.settings.topK = value;
+                await this.plugin.saveSettings();
+            }));
+
+    new Setting(containerEl)
+        .setName("Similarity Threshold")
+        .setDesc("Minimum similarity score for retrieved chunks (0.0 - 1.0, default: 0.7)")
+        .addSlider(slider => slider
+            .setLimits(0, 1, 0.05)
+            .setValue(this.plugin.settings.similarityThreshold)
+            .setDynamicTooltip()
+            .onChange(async (value) => {
+                this.plugin.settings.similarityThreshold = value;
+                await this.plugin.saveSettings();
+            }));
+
+    new Setting(containerEl)
+        .setName("Auto-Index on Change")
+        .setDesc("Automatically update the index when notes are created, modified, or deleted")
+        .addToggle(toggle => toggle
+            .setValue(this.plugin.settings.autoIndexOnChange)
+            .onChange(async (value) => {
+                this.plugin.settings.autoIndexOnChange = value;
+                await this.plugin.saveSettings();
+                if (this.plugin.ragService) {
+                    this.plugin.ragService.updateSettings(
+                        this.plugin.settings.excludedFolders,
+                        value
+                    );
+                }
+            }));
+
+    new Setting(containerEl)
+        .setName("Excluded Folders")
+        .setDesc("Comma-separated list of folder paths to exclude from indexing")
+        .addTextArea(text => text
+            .setValue(this.plugin.settings.excludedFolders.join(", "))
+            .setPlaceholder("e.g., Templates, Archive")
+            .onChange(async (value) => {
+                this.plugin.settings.excludedFolders = value
+                    .split(",")
+                    .map(f => f.trim())
+                    .filter(f => f.length > 0);
+                await this.plugin.saveSettings();
+                if (this.plugin.ragService) {
+                    this.plugin.ragService.updateSettings(
+                        this.plugin.settings.excludedFolders,
+                        this.plugin.settings.autoIndexOnChange
+                    );
+                }
+            }));
+
     containerEl.createEl("h3", { text: "Personas" });
     
     // Simple JSON editor for personas for now to avoid complex UI
@@ -321,3 +589,4 @@ class SmartJournalSettingTab extends PluginSettingTab {
             }));
   }
 }
+

@@ -14,6 +14,10 @@ export interface Conversation {
       systemPrompt?: string;
       temperature?: number;
       maxTokens?: number;
+      // RAG settings
+      ragEnabled?: boolean;
+      topK?: number;
+      similarityThreshold?: number;
   };
   createdAt: number;
   updatedAt: number;

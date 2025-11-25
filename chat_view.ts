@@ -26,17 +26,20 @@ export class ChatView extends ItemView {
   private currentConversation: Conversation | null = null;
   private messagesContainer: HTMLElement;
   private sidebarContainer: HTMLElement;
+  private ragService?: any; // RAGService type (using any to avoid circular dependency)
 
   constructor(
     leaf: WorkspaceLeaf,
     llmService: LLMService,
     conversationManager: ConversationManager,
-    private settings: any // Using any to avoid circular dependency or need to export settings interface
+    private settings: any, // Using any to avoid circular dependency or need to export settings interface
+    ragService?: any
   ) {
     super(leaf);
     this.llmService = llmService;
     this.conversationManager = conversationManager;
     this.component = new Component();
+    this.ragService = ragService;
   }
 
   getViewType() {
@@ -604,13 +607,46 @@ export class ChatView extends ItemView {
                              this.settings.personas[0]?.prompt || 
                              "You are a helpful assistant for a personal journal.";
                              
-        const contextMessages = [
-            { role: "system", content: systemPrompt },
-            ...this.currentConversation!.messages.map(m => ({
-                role: m.role,
-                content: m.content
-            }))
+        let contextMessages = [
+            { role: "system", content: systemPrompt }
         ];
+
+        // Add RAG context if enabled and available
+        if (this.ragService && this.settings.ragEnabled) {
+          try {
+            const lastUserMessage = this.currentConversation!.messages
+              .filter(m => m.role === "user")
+              .slice(-1)[0];
+            
+            if (lastUserMessage) {
+              const topK = this.currentConversation!.config?.topK ?? this.settings.topK;
+              const similarityThreshold = this.currentConversation!.config?.similarityThreshold ?? this.settings.similarityThreshold;
+              
+              const ragContext = await this.ragService.retrieveContext(
+                lastUserMessage.content,
+                topK,
+                similarityThreshold
+              );
+
+              if (ragContext.formattedContext) {
+                contextMessages.push({
+                  role: "system",
+                  content: ragContext.formattedContext
+                });
+                console.log(`RAG: Retrieved ${ragContext.retrievedChunks.length} relevant chunks`);
+              }
+            }
+          } catch (error) {
+            console.error("RAG retrieval error:", error);
+            // Continue without RAG context if there's an error
+          }
+        }
+
+        // Add conversation history
+        contextMessages.push(...this.currentConversation!.messages.map(m => ({
+            role: m.role,
+            content: m.content
+        })));
 
         const config = {
             temperature: this.currentConversation!.config?.temperature ?? this.settings.defaultTemperature,

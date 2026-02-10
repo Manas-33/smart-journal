@@ -619,11 +619,46 @@ export class ChatView extends ItemView {
               .slice(-1)[0];
             
             if (lastUserMessage) {
+              let ragQuery = lastUserMessage.content;
+
+              // Rewrite follow-up queries using LLM when there's conversation history
+              const allMessages = this.currentConversation!.messages;
+              if (allMessages.length > 1) {
+                try {
+                  // Take the last 3 turns (up to 6 messages) for context, excluding the current user message
+                  const recentHistory = allMessages.slice(0, -1).slice(-6);
+                  const historyText = recentHistory
+                    .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+                    .join("\n");
+
+                  const rewriteMessages = [
+                    {
+                      role: "system",
+                      content: "You are a query rewriter. Given a conversation history and a follow-up question, rewrite the follow-up into a standalone search query that captures the full intent. Output ONLY the rewritten query, nothing else. Keep it concise."
+                    },
+                    {
+                      role: "user",
+                      content: `Conversation history:\n${historyText}\n\nFollow-up question: ${lastUserMessage.content}\n\nRewrite as a standalone search query:`
+                    }
+                  ];
+
+                  ragQuery = await this.llmService.completion(rewriteMessages, {
+                    temperature: 0,
+                    max_tokens: 150
+                  });
+                  ragQuery = ragQuery.trim();
+                  console.log(`RAG: Rewrote query: "${lastUserMessage.content}" → "${ragQuery}"`);
+                } catch (rewriteError) {
+                  console.error("Query rewrite failed, using original query:", rewriteError);
+                  // Fall back to original query
+                }
+              }
+
               const topK = this.currentConversation!.config?.topK ?? this.settings.topK;
               const similarityThreshold = this.currentConversation!.config?.similarityThreshold ?? this.settings.similarityThreshold;
               
               const ragContext = await this.ragService.retrieveContext(
-                lastUserMessage.content,
+                ragQuery,
                 topK,
                 similarityThreshold
               );
@@ -653,18 +688,59 @@ export class ChatView extends ItemView {
             max_tokens: this.currentConversation!.config?.maxTokens ?? this.settings.defaultMaxTokens
         };
 
-        const answer = await this.llmService.completion(contextMessages, config);
+        // Create the assistant message bubble immediately for streaming
         indicator.remove();
-
-        // Add Assistant Message
         const assistantMsg: Message = {
           role: "assistant",
-          content: answer,
+          content: "",
           timestamp: Date.now(),
         };
         this.currentConversation!.messages.push(assistantMsg);
-        await this.conversationManager.saveConversation(this.currentConversation!);
         this.appendMessage(assistantMsg);
+
+        // Get the content element of the last appended message for live updates
+        const allMsgDivs = this.messagesContainer.querySelectorAll(".chat-message");
+        const lastMsgDiv = allMsgDivs[allMsgDivs.length - 1];
+        const contentEl = lastMsgDiv?.querySelector(".message-content") as HTMLElement;
+
+        let fullContent = "";
+        let tokenCount = 0;
+
+        try {
+          for await (const token of this.llmService.streamCompletion(contextMessages, config)) {
+            fullContent += token;
+            tokenCount++;
+
+            // Throttle DOM updates: re-render every 3 tokens
+            if (tokenCount % 3 === 0 && contentEl) {
+              contentEl.empty();
+              await MarkdownRenderer.renderMarkdown(fullContent, contentEl, "", this.component);
+              this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+            }
+          }
+
+          // Final render with complete content
+          if (contentEl) {
+            contentEl.empty();
+            await MarkdownRenderer.renderMarkdown(fullContent, contentEl, "", this.component);
+            this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+          }
+        } catch (streamError: any) {
+          // If streaming fails partway, keep whatever we got
+          console.error("Streaming error:", streamError);
+          if (!fullContent) {
+            // If we got nothing, fall back to non-streaming
+            fullContent = await this.llmService.completion(contextMessages, config);
+            if (contentEl) {
+              contentEl.empty();
+              await MarkdownRenderer.renderMarkdown(fullContent, contentEl, "", this.component);
+            }
+          }
+        }
+
+        // Save the completed message
+        assistantMsg.content = fullContent;
+        await this.conversationManager.saveConversation(this.currentConversation!);
         
         // Refresh sidebar to update timestamp sorting
         this.renderSidebar();

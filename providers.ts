@@ -1,5 +1,47 @@
 import { requestUrl, RequestUrlParam } from "obsidian";
 
+// ─── SSE Stream Parser ───────────────────────────────────────────────────────
+
+async function* parseSSEStream(
+  body: ReadableStream<Uint8Array>
+): AsyncGenerator<string, void, unknown> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(":")) continue;
+        if (!trimmed.startsWith("data: ")) continue;
+
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") return;
+
+        try {
+          const parsed = JSON.parse(data);
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) {
+            yield content;
+          }
+        } catch {
+          // Skip malformed JSON chunks
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type ProviderType = "local" | "gemini";
@@ -33,6 +75,10 @@ export interface ILLMProvider {
     messages: { role: string; content: string }[],
     config?: { temperature?: number; max_tokens?: number }
   ): Promise<string>;
+  streamCompletion(
+    messages: { role: string; content: string }[],
+    config?: { temperature?: number; max_tokens?: number }
+  ): AsyncGenerator<string, void, unknown>;
   updateConfig(config: LLMProviderConfig): void;
 }
 
@@ -70,6 +116,29 @@ export class LocalLLMProvider implements ILLMProvider {
 
     const response = await requestUrl(params);
     return response.json.choices[0].message.content;
+  }
+
+  async *streamCompletion(
+    messages: { role: string; content: string }[],
+    config?: { temperature?: number; max_tokens?: number }
+  ): AsyncGenerator<string, void, unknown> {
+    const response = await fetch(`${this.endpoint}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: this.model,
+        messages,
+        temperature: config?.temperature ?? 0.7,
+        max_tokens: config?.max_tokens ?? 2000,
+        stream: true,
+      }),
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Stream request failed: ${response.status}`);
+    }
+
+    yield* parseSSEStream(response.body);
   }
 
   updateConfig(config: LLMProviderConfig): void {
@@ -142,6 +211,32 @@ export class GeminiLLMProvider implements ILLMProvider {
 
     const response = await requestUrl(params);
     return response.json.choices[0].message.content;
+  }
+
+  async *streamCompletion(
+    messages: { role: string; content: string }[],
+    config?: { temperature?: number; max_tokens?: number }
+  ): AsyncGenerator<string, void, unknown> {
+    const response = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.model,
+        messages,
+        temperature: config?.temperature ?? 0.7,
+        max_tokens: config?.max_tokens ?? 2000,
+        stream: true,
+      }),
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Stream request failed: ${response.status}`);
+    }
+
+    yield* parseSSEStream(response.body);
   }
 
   updateConfig(config: LLMProviderConfig): void {

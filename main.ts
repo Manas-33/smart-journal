@@ -43,7 +43,7 @@ const DEFAULT_SETTINGS: SmartJournalSettings = {
   embeddingModel: "text-embedding-nomic-embed-text-v1.5",
   // Gemini settings
   geminiApiKey: "",
-  geminiModel: "gemini-2.0-flash",
+  geminiModel: "gemini-2.5-flash",
   geminiEmbeddingModel: "gemini-embedding-001",
   // General
   weeklySummaryPath: "Weekly Summaries",
@@ -63,7 +63,7 @@ const DEFAULT_SETTINGS: SmartJournalSettings = {
   topK: 6,
   similarityThreshold: 0.4,
   autoIndexOnChange: true,
-  excludedFolders: [],
+  excludedFolders: ["Templates", ".obsidian"],
   chromaDbPath: ".obsidian/plugins/smart-journal/chromadb",
 };
 export default class SmartJournalPlugin extends Plugin {

@@ -6,5 +6,5 @@
 	"description": "A smart journal plugin that uses local LLMs to tag notes, summarize weeks, and extract action items.",
 	"author": "Sketched",
 	"authorUrl": "https://github.com/manas-33/smart-journal",
-	"isDesktopOnly": true
+	"isDesktopOnly": false
 }

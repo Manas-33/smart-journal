@@ -15,6 +15,12 @@ export class RAGService {
   private isInitialized: boolean = false;
   private excludedFolders: string[];
   private autoIndexOnChange: boolean;
+  /** Content hash cache to skip re-indexing unchanged files */
+  private contentHashes: Map<string, string> = new Map();
+  /** Debounce timers for modify events (prevents rapid re-indexing from sync) */
+  private modifyTimers: Map<string, NodeJS.Timeout> = new Map();
+  /** Delay before processing a modify event (ms) */
+  private static readonly MODIFY_DEBOUNCE_MS = 2000;
 
   constructor(
     app: App,
@@ -47,17 +53,45 @@ export class RAGService {
   }
 
   /**
+   * Simple fast hash of a string (djb2 algorithm).
+   * Not cryptographic — just for content-change detection.
+   */
+  private hashContent(content: string): string {
+    let hash = 5381;
+    for (let i = 0; i < content.length; i++) {
+      hash = ((hash << 5) + hash + content.charCodeAt(i)) & 0xffffffff;
+    }
+    return hash.toString(36);
+  }
+
+  /**
    * Set up file watchers for auto-indexing
    */
   private setupFileWatchers(): void {
-    // Watch for file modifications
+    // Watch for file modifications (debounced)
     this.app.vault.on("modify", async (file) => {
       if (file instanceof TFile && file.extension === "md") {
         if (!this.shouldIndexFile(file.path)) {
           return;
         }
-        console.log(`Auto-indexing modified file: ${file.path}`);
-        await this.indexFile(file);
+
+        // Debounce: cancel any pending re-index for this file
+        const existing = this.modifyTimers.get(file.path);
+        if (existing) {
+          clearTimeout(existing);
+        }
+
+        // Wait before re-indexing to let rapid sync events settle
+        const timer = setTimeout(async () => {
+          this.modifyTimers.delete(file.path);
+          try {
+            await this.indexFile(file);
+          } catch (error) {
+            console.error(`Auto-index failed for ${file.path}:`, error);
+          }
+        }, RAGService.MODIFY_DEBOUNCE_MS);
+
+        this.modifyTimers.set(file.path, timer);
       }
     });
 
@@ -76,6 +110,7 @@ export class RAGService {
     this.app.vault.on("delete", async (file) => {
       if (file instanceof TFile && file.extension === "md") {
         console.log(`Removing deleted file from index: ${file.path}`);
+        this.contentHashes.delete(file.path);
         await this.vectorStore.deleteDocumentsByPath(file.path);
       }
     });
@@ -84,7 +119,8 @@ export class RAGService {
     this.app.vault.on("rename", async (file, oldPath) => {
       if (file instanceof TFile && file.extension === "md") {
         console.log(`Updating index for renamed file: ${oldPath} -> ${file.path}`);
-        // Delete old entries
+        // Clean up old entries and hash
+        this.contentHashes.delete(oldPath);
         await this.vectorStore.deleteDocumentsByPath(oldPath);
         // Index with new path
         if (this.shouldIndexFile(file.path)) {
@@ -107,7 +143,9 @@ export class RAGService {
   }
 
   /**
-   * Index a single file
+   * Index a single file.
+   * Uses content hashing to skip unchanged files and atomic swap
+   * to prevent data loss if embedding generation fails.
    */
   async indexFile(file: TFile): Promise<void> {
     if (!this.isInitialized) {
@@ -118,15 +156,16 @@ export class RAGService {
       const content = await this.app.vault.read(file);
       const noteTitle = file.basename;
 
-      // Check if file already has embeddings
-      const existingIds = await this.vectorStore.getDocumentIdsByPath(file.path);
-      
-      // Delete existing embeddings for this file
-      if (existingIds.length > 0) {
-        await this.vectorStore.deleteDocumentsByPath(file.path);
+      // ── Content hash check: skip if unchanged ──────────────────────────
+      const contentHash = this.hashContent(content);
+      const previousHash = this.contentHashes.get(file.path);
+
+      if (previousHash === contentHash) {
+        console.log(`Skipping unchanged file: ${file.path}`);
+        return;
       }
 
-      // Process the document
+      // ── Generate new embeddings FIRST (before deleting old ones) ──────
       const { chunks, embeddings } = await this.embeddingService.processDocument(
         content,
         file.path,
@@ -135,6 +174,8 @@ export class RAGService {
 
       if (chunks.length === 0) {
         console.log(`No content to index for ${file.path}`);
+        // Still update hash so we don't retry empty files
+        this.contentHashes.set(file.path, contentHash);
         return;
       }
 
@@ -152,10 +193,16 @@ export class RAGService {
         },
       }));
 
-      // Add to vector store
+      // ── Atomic swap: delete old ONLY after new embeddings succeed ─────
+      await this.vectorStore.deleteDocumentsByPath(file.path);
       await this.vectorStore.addDocuments(vectorDocuments);
+
+      // Update the content hash now that everything succeeded
+      this.contentHashes.set(file.path, contentHash);
+
       console.log(`Indexed ${chunks.length} chunks for ${file.path}`);
     } catch (error) {
+      // Old embeddings are preserved since we only delete after success
       console.error(`Failed to index file ${file.path}:`, error);
       throw error;
     }

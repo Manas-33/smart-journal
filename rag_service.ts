@@ -1,4 +1,4 @@
-import { App, TFile, Notice } from "obsidian";
+import { App, TFile, TAbstractFile, Notice } from "obsidian";
 import { EmbeddingService, DocumentChunk } from "./embedding_service";
 import { VectorStore, VectorDocument, SearchResult } from "./vector_store";
 
@@ -15,23 +15,27 @@ export class RAGService {
   private isInitialized: boolean = false;
   private excludedFolders: string[];
   private autoIndexOnChange: boolean;
+  private contentHashesPath: string;
   /** Content hash cache to skip re-indexing unchanged files */
   private contentHashes: Map<string, string> = new Map();
-  /** Debounce timers for modify events (prevents rapid re-indexing from sync) */
-  private modifyTimers: Map<string, NodeJS.Timeout> = new Map();
-  /** Delay before processing a modify event (ms) */
-  private static readonly MODIFY_DEBOUNCE_MS = 2000;
+  /** Set of file paths that have been modified but not yet re-indexed */
+  private dirtyFiles: Set<string> = new Set();
+  /** Debounce timer for saving content hashes */
+  private saveHashesTimer: NodeJS.Timeout | null = null;
+  private static readonly SAVE_HASHES_DEBOUNCE_MS = 2000;
 
   constructor(
     app: App,
     embeddingService: EmbeddingService,
     vectorStore: VectorStore,
+    contentHashesPath: string,
     excludedFolders: string[] = [],
     autoIndexOnChange: boolean = true
   ) {
     this.app = app;
     this.embeddingService = embeddingService;
     this.vectorStore = vectorStore;
+    this.contentHashesPath = contentHashesPath;
     this.excludedFolders = excludedFolders;
     this.autoIndexOnChange = autoIndexOnChange;
   }
@@ -39,6 +43,7 @@ export class RAGService {
   async initialize(): Promise<void> {
     try {
       await this.vectorStore.initialize();
+      await this.loadContentHashes();
       this.isInitialized = true;
       console.log("RAG Service initialized");
 
@@ -50,6 +55,44 @@ export class RAGService {
       console.error("Failed to initialize RAG Service:", error);
       throw error;
     }
+  }
+
+  /**
+   * Load content hashes from disk
+   */
+  private async loadContentHashes(): Promise<void> {
+    try {
+      const adapter = this.app.vault.adapter;
+      if (await adapter.exists(this.contentHashesPath)) {
+        const data = await adapter.read(this.contentHashesPath);
+        const hashes = JSON.parse(data);
+        this.contentHashes = new Map(Object.entries(hashes));
+        console.log(`Loaded ${this.contentHashes.size} content hashes from disk`);
+      }
+    } catch (error) {
+      console.error("Failed to load content hashes:", error);
+      // Continue with empty hashes
+    }
+  }
+
+  /**
+   * Save content hashes to disk (debounced to avoid excessive writes)
+   */
+  private saveContentHashes(): void {
+    if (this.saveHashesTimer) {
+      clearTimeout(this.saveHashesTimer);
+    }
+
+    this.saveHashesTimer = setTimeout(async () => {
+      try {
+        const adapter = this.app.vault.adapter;
+        const hashes = Object.fromEntries(this.contentHashes);
+        await adapter.write(this.contentHashesPath, JSON.stringify(hashes));
+        console.log(`Saved ${this.contentHashes.size} content hashes to disk`);
+      } catch (error) {
+        console.error("Failed to save content hashes:", error);
+      }
+    }, RAGService.SAVE_HASHES_DEBOUNCE_MS);
   }
 
   /**
@@ -68,31 +111,19 @@ export class RAGService {
    * Set up file watchers for auto-indexing
    */
   private setupFileWatchers(): void {
-    // Watch for file modifications (debounced)
-    this.app.vault.on("modify", async (file) => {
+    // Watch for file modifications – just mark as dirty, no API calls yet
+    this.app.vault.on("modify", (file: TAbstractFile) => {
       if (file instanceof TFile && file.extension === "md") {
         if (!this.shouldIndexFile(file.path)) {
           return;
         }
-
-        // Debounce: cancel any pending re-index for this file
-        const existing = this.modifyTimers.get(file.path);
-        if (existing) {
-          clearTimeout(existing);
-        }
-
-        // Wait before re-indexing to let rapid sync events settle
-        const timer = setTimeout(async () => {
-          this.modifyTimers.delete(file.path);
-          try {
-            await this.indexFile(file);
-          } catch (error) {
-            console.error(`Auto-index failed for ${file.path}:`, error);
-          }
-        }, RAGService.MODIFY_DEBOUNCE_MS);
-
-        this.modifyTimers.set(file.path, timer);
+        this.dirtyFiles.add(file.path);
       }
+    });
+
+    // Re-index dirty files when the user switches away from a note
+    this.app.workspace.on("active-leaf-change", async () => {
+      await this.flushDirtyFiles();
     });
 
     // Watch for file creation
@@ -131,6 +162,29 @@ export class RAGService {
   }
 
   /**
+   * Process all dirty (modified but not yet re-indexed) files.
+   * Called when the user switches away from a note.
+   */
+  async flushDirtyFiles(): Promise<void> {
+    if (this.dirtyFiles.size === 0) return;
+
+    // Snapshot and clear so new edits during indexing are tracked separately
+    const paths = [...this.dirtyFiles];
+    this.dirtyFiles.clear();
+
+    for (const filePath of paths) {
+      const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(abstractFile instanceof TFile)) continue;
+
+      try {
+        await this.indexFile(abstractFile);
+      } catch (error) {
+        console.error(`Auto-index failed for ${filePath}:`, error);
+      }
+    }
+  }
+
+  /**
    * Check if a file should be indexed based on excluded folders
    */
   private shouldIndexFile(filePath: string): boolean {
@@ -162,6 +216,15 @@ export class RAGService {
 
       if (previousHash === contentHash) {
         console.log(`Skipping unchanged file: ${file.path}`);
+        return;
+      }
+
+      // ── Skip empty or whitespace-only files ────────────────────────────
+      if (content.trim().length === 0) {
+        console.log(`Skipping empty file: ${file.path}`);
+        // Still update hash so we don't retry empty files
+        this.contentHashes.set(file.path, contentHash);
+        this.saveContentHashes();
         return;
       }
 
@@ -199,6 +262,7 @@ export class RAGService {
 
       // Update the content hash now that everything succeeded
       this.contentHashes.set(file.path, contentHash);
+      this.saveContentHashes();
 
       console.log(`Indexed ${chunks.length} chunks for ${file.path}`);
     } catch (error) {

@@ -94,14 +94,15 @@ export default class SmartJournalPlugin extends Plugin {
           this.settings.chunkOverlap
         );
 
-        const vaultPath = (this.app.vault.adapter as any).basePath;
-        const vectorStorePath = `${vaultPath}/${this.settings.chromaDbPath}/vectors.json`;
+        const vectorStorePath = `${this.settings.chromaDbPath}/vectors.json`;
+        const contentHashesPath = `${this.settings.chromaDbPath}/content_hashes.json`;
         this.vectorStore = new VectorStore(this.app, vectorStorePath);
 
         this.ragService = new RAGService(
           this.app,
           this.embeddingService,
           this.vectorStore,
+          contentHashesPath,
           this.settings.excludedFolders,
           this.settings.autoIndexOnChange
         );

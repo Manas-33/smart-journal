@@ -1,4 +1,4 @@
-import { requestUrl, RequestUrlParam } from "obsidian";
+import { IEmbeddingProvider } from "./providers";
 
 export interface EmbeddingResult {
   embedding: number[];
@@ -16,31 +16,25 @@ export interface DocumentChunk {
 }
 
 export class EmbeddingService {
-  private endpoint: string;
-  private model: string;
+  private provider: IEmbeddingProvider;
   private chunkSize: number;
   private chunkOverlap: number;
 
   constructor(
-    endpoint: string,
-    model: string = "text-embedding-nomic-embed-text-v1.5",
+    provider: IEmbeddingProvider,
     chunkSize: number = 512,
     chunkOverlap: number = 50
   ) {
-    this.endpoint = endpoint;
-    this.model = model;
+    this.provider = provider;
     this.chunkSize = chunkSize;
     this.chunkOverlap = chunkOverlap;
   }
 
-  updateSettings(
-    endpoint: string,
-    model: string,
-    chunkSize: number,
-    chunkOverlap: number
-  ) {
-    this.endpoint = endpoint;
-    this.model = model;
+  updateProvider(provider: IEmbeddingProvider) {
+    this.provider = provider;
+  }
+
+  updateChunkSettings(chunkSize: number, chunkOverlap: number) {
     this.chunkSize = chunkSize;
     this.chunkOverlap = chunkOverlap;
   }
@@ -49,41 +43,7 @@ export class EmbeddingService {
    * Generate embedding for a single text
    */
   async generateEmbedding(text: string): Promise<number[]> {
-    const url = `${this.endpoint}/v1/embeddings`;
-
-    const body = {
-      model: this.model,
-      input: text,
-    };
-
-    const params: RequestUrlParam = {
-      url: url,
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    };
-
-    try {
-      const response = await requestUrl(params);
-      const data = response.json;
-
-      if (data.data && data.data.length > 0) {
-        return data.data[0].embedding;
-      } else {
-        throw new Error(
-          "No embedding returned from API: " + JSON.stringify(data)
-        );
-      }
-    } catch (error: any) {
-      console.error("Embedding Service Error:", error);
-      console.error("URL:", url);
-      console.error("Request body:", JSON.stringify(body, null, 2));
-      if (error.status) console.error("Status:", error.status);
-      if (error.message) console.error("Error message:", error.message);
-      throw error;
-    }
+    return this.provider.generateEmbedding(text);
   }
 
   /**

@@ -6,17 +6,26 @@ import { ConversationManager } from "./conversation_manager";
 import { EmbeddingService } from "./embedding_service";
 import { VectorStore } from "./vector_store";
 import { RAGService } from "./rag_service";
+import { ProviderType, createLLMProvider, createEmbeddingProvider } from "./providers";
 
 interface SmartJournalSettings {
+  // Provider settings
+  providerType: ProviderType;
+  // Local LLM settings
   llmEndpoint: string;
   modelName: string;
+  embeddingModel: string;
+  // Gemini settings
+  geminiApiKey: string;
+  geminiModel: string;
+  geminiEmbeddingModel: string;
+  // General settings
   weeklySummaryPath: string;
   personas: { name: string; prompt: string }[];
   defaultTemperature: number;
   defaultMaxTokens: number;
   // RAG Settings
   ragEnabled: boolean;
-  embeddingModel: string;
   chunkSize: number;
   chunkOverlap: number;
   topK: number;
@@ -27,8 +36,16 @@ interface SmartJournalSettings {
 }
 
 const DEFAULT_SETTINGS: SmartJournalSettings = {
+  providerType: "local",
+  // Local LLM settings
   llmEndpoint: "http://localhost:1234",
   modelName: "qwen/qwen3-vl-4b",
+  embeddingModel: "text-embedding-nomic-embed-text-v1.5",
+  // Gemini settings
+  geminiApiKey: "",
+  geminiModel: "gemini-2.0-flash",
+  geminiEmbeddingModel: "gemini-embedding-001",
+  // General
   weeklySummaryPath: "Weekly Summaries",
   personas: [
       { name: "Default", prompt: "You are a helpful assistant for a personal journal." },
@@ -41,7 +58,6 @@ const DEFAULT_SETTINGS: SmartJournalSettings = {
   defaultMaxTokens: 2000,
   // RAG Settings
   ragEnabled: true,
-  embeddingModel: "text-embedding-nomic-embed-text-v1.5",
   chunkSize: 200,
   chunkOverlap: 30,
   topK: 6,
@@ -62,10 +78,8 @@ export default class SmartJournalPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
 
-    this.llmService = new LLMService(
-      this.settings.llmEndpoint,
-      this.settings.modelName
-    );
+    const llmProvider = createLLMProvider(this.settings);
+    this.llmService = new LLMService(llmProvider);
     this.processor = new Processor(this.llmService);
     this.conversationManager = new ConversationManager(this.app);
     await this.conversationManager.initialize();
@@ -73,9 +87,9 @@ export default class SmartJournalPlugin extends Plugin {
     // Initialize RAG services if enabled
     if (this.settings.ragEnabled) {
       try {
+        const embeddingProvider = createEmbeddingProvider(this.settings);
         this.embeddingService = new EmbeddingService(
-          this.settings.llmEndpoint,
-          this.settings.embeddingModel,
+          embeddingProvider,
           this.settings.chunkSize,
           this.settings.chunkOverlap
         );
@@ -371,10 +385,17 @@ export default class SmartJournalPlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
-    this.llmService.updateSettings(
-      this.settings.llmEndpoint,
-      this.settings.modelName
-    );
+    // Recreate providers with new settings
+    const llmProvider = createLLMProvider(this.settings);
+    this.llmService.updateProvider(llmProvider);
+    if (this.embeddingService) {
+      const embeddingProvider = createEmbeddingProvider(this.settings);
+      this.embeddingService.updateProvider(embeddingProvider);
+      this.embeddingService.updateChunkSettings(
+        this.settings.chunkSize,
+        this.settings.chunkOverlap
+      );
+    }
   }
 }
 
@@ -393,31 +414,110 @@ class SmartJournalSettingTab extends PluginSettingTab {
 
     containerEl.createEl("h2", { text: "Smart Journal Settings" });
 
+    // ── Provider Selection ──────────────────────────────────────────────
     new Setting(containerEl)
-      .setName("LLM Endpoint")
-      .setDesc("The URL of your local LLM server (e.g., http://localhost:1234)")
-      .addText((text) =>
-        text
-          .setPlaceholder("http://localhost:1234")
-          .setValue(this.plugin.settings.llmEndpoint)
+      .setName("AI Provider")
+      .setDesc("Choose between a local LLM server or Google Gemini API")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("local", "Local (LM Studio / Ollama)")
+          .addOption("gemini", "Google Gemini")
+          .setValue(this.plugin.settings.providerType)
           .onChange(async (value) => {
-            this.plugin.settings.llmEndpoint = value;
+            this.plugin.settings.providerType = value as ProviderType;
             await this.plugin.saveSettings();
+            // Re-render settings to show/hide provider-specific fields
+            this.display();
           })
       );
 
-    new Setting(containerEl)
-      .setName("Model Name")
-      .setDesc("The name of the model to use (e.g., qwen/qwen3-vl-4b)")
-      .addText((text) =>
-        text
-          .setPlaceholder("qwen/qwen3-vl-4b")
-          .setValue(this.plugin.settings.modelName)
-          .onChange(async (value) => {
-            this.plugin.settings.modelName = value;
-            await this.plugin.saveSettings();
-          })
-      );
+    // ── Local Provider Settings ─────────────────────────────────────────
+    if (this.plugin.settings.providerType === "local") {
+      containerEl.createEl("h3", { text: "Local LLM Settings" });
+
+      new Setting(containerEl)
+        .setName("LLM Endpoint")
+        .setDesc("The URL of your local LLM server (e.g., http://localhost:1234)")
+        .addText((text) =>
+          text
+            .setPlaceholder("http://localhost:1234")
+            .setValue(this.plugin.settings.llmEndpoint)
+            .onChange(async (value) => {
+              this.plugin.settings.llmEndpoint = value;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(containerEl)
+        .setName("Chat Model")
+        .setDesc("The name of the chat model (e.g., qwen/qwen3-vl-4b)")
+        .addText((text) =>
+          text
+            .setPlaceholder("qwen/qwen3-vl-4b")
+            .setValue(this.plugin.settings.modelName)
+            .onChange(async (value) => {
+              this.plugin.settings.modelName = value;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(containerEl)
+        .setName("Embedding Model")
+        .setDesc("The name of the embedding model for RAG")
+        .addText((text) =>
+          text
+            .setValue(this.plugin.settings.embeddingModel)
+            .setPlaceholder("text-embedding-nomic-embed-text-v1.5")
+            .onChange(async (value) => {
+              this.plugin.settings.embeddingModel = value;
+              await this.plugin.saveSettings();
+            })
+        );
+    }
+
+    // ── Gemini Provider Settings ────────────────────────────────────────
+    if (this.plugin.settings.providerType === "gemini") {
+      containerEl.createEl("h3", { text: "Google Gemini Settings" });
+
+      new Setting(containerEl)
+        .setName("API Key")
+        .setDesc("Your Gemini API key from Google AI Studio (aistudio.google.com/apikey)")
+        .addText((text) =>
+          text
+            .setPlaceholder("Enter your Gemini API key")
+            .setValue(this.plugin.settings.geminiApiKey)
+            .onChange(async (value) => {
+              this.plugin.settings.geminiApiKey = value;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(containerEl)
+        .setName("Chat Model")
+        .setDesc("Gemini model for chat (e.g., gemini-2.0-flash, gemini-2.5-pro)")
+        .addText((text) =>
+          text
+            .setPlaceholder("gemini-2.5-flash")
+            .setValue(this.plugin.settings.geminiModel)
+            .onChange(async (value) => {
+              this.plugin.settings.geminiModel = value;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      new Setting(containerEl)
+        .setName("Embedding Model")
+        .setDesc("Gemini model for embeddings (e.g., gemini-embedding-001)")
+        .addText((text) =>
+          text
+            .setPlaceholder("gemini-embedding-001")
+            .setValue(this.plugin.settings.geminiEmbeddingModel)
+            .onChange(async (value) => {
+              this.plugin.settings.geminiEmbeddingModel = value;
+              await this.plugin.saveSettings();
+            })
+        );
+    }
 
     new Setting(containerEl)
       .setName("Weekly Summary Path")
@@ -469,16 +569,6 @@ class SmartJournalSettingTab extends PluginSettingTab {
                 this.plugin.settings.ragEnabled = value;
                 await this.plugin.saveSettings();
                 new Notice("Please reload Obsidian for RAG changes to take effect");
-            }));
-
-    new Setting(containerEl)
-        .setName("Embedding Model")
-        .setDesc("Name of the embedding model (e.g., text-embedding-nomic-embed-text-v1.5)")
-        .addText(text => text
-            .setValue(this.plugin.settings.embeddingModel)
-            .onChange(async (value) => {
-                this.plugin.settings.embeddingModel = value;
-                await this.plugin.saveSettings();
             }));
 
     new Setting(containerEl)

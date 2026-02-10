@@ -1,14 +1,22 @@
 # Smart Journal Obsidian Plugin
 
-A "Smart" Journal plugin for Obsidian that uses local LLMs to automatically tag notes, summarize your week, extract action items, and chat with your notes using RAG (Retrieval-Augmented Generation).
+A "Smart" Journal plugin for Obsidian that uses LLMs to automatically tag notes, summarize your week, extract action items, and chat with your notes using RAG (Retrieval-Augmented Generation). Supports both **local LLMs** and **Google Gemini API**.
 
 ## Prerequisites
 
-1.  **Local LLM Server**: You need a local LLM running.
-    *   **LM Studio**: Start the server (usually port `1234`).
-    *   **Ollama**: Start the server (usually port `11434`).
-    *   *Note*: The default chat model is configured as `qwen/qwen3-vl-4b`.
-    *   *Note*: For RAG, you need an embedding model (default: `text-embedding-nomic-embed-text-v1.5`). Ensure this model is pulled/available in your LLM server.
+Choose one of the following AI providers:
+
+### Option A: Local LLM Server
+1.  **LM Studio**: Start the server (usually port `1234`), or
+2.  **Ollama**: Start the server (usually port `11434`).
+    *   Default chat model: `qwen/qwen3-vl-4b`
+    *   Default embedding model: `text-embedding-nomic-embed-text-v1.5`
+
+### Option B: Google Gemini API
+1.  Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey).
+2.  No local server required — runs entirely via API.
+    *   Default chat model: `gemini-2.5-flash`
+    *   Default embedding model: `gemini-embedding-001`
 
 ## Installation
 
@@ -56,16 +64,26 @@ Open the Command Palette (Cmd/Ctrl + P) and search for "Smart Journal":
 ### Settings
 Go to **Settings > Smart Journal** to configure:
 
-#### General
+#### AI Provider
+*   **AI Provider**: Choose between "Local (LM Studio / Ollama)" or "Google Gemini".
+
+#### Local LLM Settings (shown when Local is selected)
 *   **LLM Endpoint**: URL of your local LLM (default: `http://localhost:1234`).
-*   **Model Name**: Chat model identifier (default: `qwen/qwen3-vl-4b`).
+*   **Chat Model**: Chat model identifier (default: `qwen/qwen3-vl-4b`).
+*   **Embedding Model**: Embedding model for RAG (default: `text-embedding-nomic-embed-text-v1.5`).
+
+#### Google Gemini Settings (shown when Gemini is selected)
+*   **API Key**: Your Gemini API key from Google AI Studio.
+*   **Chat Model**: Gemini model for chat (default: `gemini-2.0-flash`).
+*   **Embedding Model**: Gemini model for embeddings (default: `gemini-embedding-001`).
+
+#### General
 *   **Weekly Summary Path**: Folder to save weekly summaries.
 *   **Default Temperature**: Controls randomness of responses.
 *   **Default Max Tokens**: Maximum length of response.
 
 #### RAG Settings
 *   **Enable RAG**: Toggle retrieval features on/off.
-*   **Embedding Model**: Model used for vectorizing notes (default: `text-embedding-nomic-embed-text-v1.5`).
 *   **Chunk Size & Overlap**: Fine-tune how notes are split for indexing.
 *   **Top K Results**: Number of relevant note chunks to send to the LLM.
 *   **Similarity Threshold**: Minimum relevance score for chunks.

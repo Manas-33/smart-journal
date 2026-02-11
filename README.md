@@ -1,12 +1,43 @@
-# Memex — Obsidian Plugin
+<p align="center">
+  <img src="assets/banner.png" alt="Memex — Your AI-powered knowledge companion for Obsidian" width="100%" />
+</p>
 
-An AI-powered journal companion for [Obsidian](https://obsidian.md) that auto-tags notes, summarizes your week, extracts action items, and lets you **chat with your entire vault** using RAG (Retrieval-Augmented Generation). Supports both **local LLMs** (LM Studio / Ollama) and **Google Gemini API**.
+<p align="center">
+  <strong>Auto-tag notes · Summarise your week · Extract action items · Chat with your vault</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.0.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/AI-Local%20%7C%20Gemini-orange?style=flat-square" alt="AI Providers" />
+</p>
+
+---
+
+## ⚡ Quick Start — up and running in 60 seconds
+
+```bash
+# 1️⃣  Build the plugin
+npm install && npm run build
+
+# 2️⃣  Install into your vault
+mkdir -p <your-vault>/.obsidian/plugins/memex
+cp main.js manifest.json <your-vault>/.obsidian/plugins/memex/
+
+# 3️⃣  Enable in Obsidian
+#     Settings → Community Plugins → Reload → Toggle "Memex" ON
+#     Then set your AI provider (Local or Gemini) in Settings → Memex
+```
+
+> **Using Gemini?** Grab a free API key from [Google AI Studio](https://aistudio.google.com/apikey) — no local server needed.
+>
+> **Using a local LLM?** Start [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.com) and load a chat + embedding model.
 
 ---
 
 ## ✨ Features
 
-### 💬 Chat with Your Journal
+### 💬 Chat with Your Vault
 - **Streaming responses** — tokens appear in real-time as the LLM generates them, with automatic fallback to non-streaming if the server doesn't support it.
 - **Multiple conversations** — create, rename, and delete chats; sidebar lists them sorted by last activity.
 - **Resizable sidebar** — drag the divider or toggle the sidebar open/closed.
@@ -47,35 +78,6 @@ Swap between providers at any time — no restart required:
 | **Server** | Your local machine | Google Cloud (API key) |
 
 Both providers implement the same `ILLMProvider` / `IEmbeddingProvider` interfaces using OpenAI-compatible endpoints, so any model that speaks that protocol works.
-
----
-
-## 📋 Prerequisites
-
-Choose **one** of the following:
-
-### Option A — Local LLM Server
-1. Install [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.com).
-2. Start the server (LM Studio default: port `1234`, Ollama: port `11434`).
-3. Load a chat model and an embedding model.
-
-### Option B — Google Gemini API
-1. Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey).
-2. No local server needed — everything runs via the API.
-
----
-
-## 🚀 Installation
-
-```bash
-npm install
-npm run build
-```
-
-1. In your Obsidian vault, navigate to `.obsidian/plugins/`.
-2. Create a folder named `memex`.
-3. Copy `main.js`, `styles.css` (if any), and `manifest.json` into it.
-4. Open **Settings → Community Plugins**, reload, and toggle **Memex** ON.
 
 ---
 
@@ -155,6 +157,49 @@ main.ts                  → Plugin entry point, settings, commands
 
 ---
 
+## 🗺️ Roadmap
+
+- [ ] **Multi-modal notes** — image and PDF understanding via vision models
+- [ ] **Graph-aware RAG** — leverage Obsidian's link graph to boost retrieval relevance
+- [ ] **Ollama auto-detect** — automatically discover running models, no manual config
+- [ ] **Mobile support** — optimise the chat UI and indexing for Obsidian Mobile
+- [ ] **Semantic search command** — vault-wide natural language search from the command palette
+- [ ] **Note generation** — create new notes from chat responses with backlinks
+- [ ] **Scheduled summaries** — automatic daily/weekly/monthly summaries on a cron
+- [ ] **Plugin marketplace** — submit to the Obsidian Community Plugins directory
+
+Have an idea? [Open an issue](https://github.com/manas-33/memex/issues) — PRs welcome!
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome — whether it's a bug fix, new feature, or documentation improvement.
+
+1. **Fork** the repo and create a new branch:
+   ```bash
+   git checkout -b feature/my-feature
+   ```
+2. **Make your changes** — follow the existing code style and add comments where needed.
+3. **Build & test** to make sure everything compiles:
+   ```bash
+   npm run build
+   ```
+4. **Submit a Pull Request** with a clear description of what you changed and why.
+
+### Development Setup
+
+```bash
+git clone https://github.com/manas-33/memex.git
+cd memex
+npm install
+npm run dev    # Watch mode — rebuilds on file changes
+```
+
+Then symlink or copy the built files into your vault's `.obsidian/plugins/memex/` folder and reload Obsidian.
+
+---
+
 ## 📄 License
 
-MIT
+MIT — see [LICENSE](LICENSE) for details.

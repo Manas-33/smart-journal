@@ -29,7 +29,7 @@ export class ConversationManager {
 
   constructor(app: App) {
     this.app = app;
-    this.conversationsPath = ".smart-journal/conversations";
+    this.conversationsPath = ".memex/conversations";
   }
 
   async initialize() {

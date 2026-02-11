@@ -1,4 +1,4 @@
-# Smart Journal — Obsidian Plugin
+# Memex — Obsidian Plugin
 
 An AI-powered journal companion for [Obsidian](https://obsidian.md) that auto-tags notes, summarizes your week, extracts action items, and lets you **chat with your entire vault** using RAG (Retrieval-Augmented Generation). Supports both **local LLMs** (LM Studio / Ollama) and **Google Gemini API**.
 
@@ -18,7 +18,7 @@ An AI-powered journal companion for [Obsidian](https://obsidian.md) that auto-ta
   - **Export to Note** — saves a message as a new Markdown file in your vault.
 - **Per-conversation settings** — override temperature, max tokens, system prompt, RAG top-K, and similarity threshold on a per-chat basis via the ⚙️ button.
 - **Personas** — switch the assistant's personality (e.g., *Zettelkasten Guide*, *Daily Reflector*, *Concise Summarizer*). Fully customisable in settings.
-- **PDF export** — right-click a chat in the sidebar → *Export to PDF*. Renders full Markdown with styled headings, code blocks, and lists into an A4 PDF saved to `Smart Journal/PDFs/`.
+- **PDF export** — right-click a chat in the sidebar → *Export to PDF*. Renders full Markdown with styled headings, code blocks, and lists into an A4 PDF saved to `Memex/PDFs/`.
 
 ### 🔎 RAG (Retrieval-Augmented Generation)
 - **Intelligent query rewriting** — follow-up questions are automatically rewritten into standalone search queries using the LLM, so context isn't lost across turns.
@@ -73,16 +73,16 @@ npm run build
 ```
 
 1. In your Obsidian vault, navigate to `.obsidian/plugins/`.
-2. Create a folder named `smart-journal`.
+2. Create a folder named `memex`.
 3. Copy `main.js`, `styles.css` (if any), and `manifest.json` into it.
-4. Open **Settings → Community Plugins**, reload, and toggle **Smart Journal** ON.
+4. Open **Settings → Community Plugins**, reload, and toggle **Memex** ON.
 
 ---
 
 ## 🎮 Usage
 
 ### Commands
-Open the Command Palette (`Cmd/Ctrl + P`) and search for **Smart Journal**:
+Open the Command Palette (`Cmd/Ctrl + P`) and search for **Memex**:
 
 | Command | Description |
 |---------|-------------|
@@ -105,7 +105,7 @@ Open the Command Palette (`Cmd/Ctrl + P`) and search for **Smart Journal**:
 
 ## ⚙️ Settings
 
-Go to **Settings → Smart Journal**.
+Go to **Settings → Memex**.
 
 ### AI Provider
 - **Provider**: Local (LM Studio / Ollama) or Google Gemini.
@@ -149,7 +149,7 @@ main.ts                  → Plugin entry point, settings, commands
 ├── vector_store.ts      → JSON-backed vector store with Float32Array + min-heap search
 ├── rag_service.ts       → RAG orchestration (indexing, retrieval, query rewriting)
 ├── processor.ts         → Note processing (tags, action items, weekly summary)
-├── conversation_manager.ts → Conversation CRUD (JSON files in .smart-journal/)
+├── conversation_manager.ts → Conversation CRUD (JSON files in .memex/)
 └── chat_view.ts         → Chat UI (sidebar, messages, streaming, PDF export)
 ```
 

@@ -1,7 +1,7 @@
 {
-    "name": "smart-journal",
+    "name": "memex",
     "version": "1.0.0",
-    "description": "Obsidian plugin for smart journaling with local LLMs",
+    "description": "Memex — an AI-powered knowledge companion for Obsidian",
     "main": "main.js",
     "scripts": {
         "dev": "node esbuild.config.mjs",

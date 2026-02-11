@@ -8,7 +8,7 @@ import { VectorStore } from "./vector_store";
 import { RAGService } from "./rag_service";
 import { ProviderType, createLLMProvider, createEmbeddingProvider } from "./providers";
 
-interface SmartJournalSettings {
+interface MemexSettings {
   // Provider settings
   providerType: ProviderType;
   // Local LLM settings
@@ -35,7 +35,7 @@ interface SmartJournalSettings {
   chromaDbPath: string;
 }
 
-const DEFAULT_SETTINGS: SmartJournalSettings = {
+const DEFAULT_SETTINGS: MemexSettings = {
   providerType: "local",
   // Local LLM settings
   llmEndpoint: "http://localhost:1234",
@@ -48,7 +48,7 @@ const DEFAULT_SETTINGS: SmartJournalSettings = {
   // General
   weeklySummaryPath: "Weekly Summaries",
   personas: [
-      { name: "Default", prompt: "You are a helpful assistant for a personal journal." },
+      { name: "Default", prompt: "You are a helpful AI assistant for a personal knowledge base." },
       { name: "Obsidian Architect", prompt: "You are an expert in Obsidian and Personal Knowledge Management (PKM). Help me organize notes, suggest links using [[WikiLinks]], and recommend tags. Format output in clean Markdown." },
       { name: "Zettelkasten Guide", prompt: "You are a Zettelkasten method expert. Help me break down complex ideas into atomic notes and find connections between them." },
       { name: "Daily Reflector", prompt: "You are a compassionate journaling companion. Help me reflect on my day, identify patterns, and set intentions. Use a warm, supportive tone." },
@@ -64,10 +64,10 @@ const DEFAULT_SETTINGS: SmartJournalSettings = {
   similarityThreshold: 0.4,
   autoIndexOnChange: true,
   excludedFolders: ["Templates", ".obsidian"],
-  chromaDbPath: ".obsidian/plugins/smart-journal/chromadb",
+  chromaDbPath: ".obsidian/plugins/memex/chromadb",
 };
-export default class SmartJournalPlugin extends Plugin {
-  settings: SmartJournalSettings;
+export default class MemexPlugin extends Plugin {
+  settings: MemexSettings;
   llmService: LLMService;
   processor: Processor;
   conversationManager: ConversationManager;
@@ -351,7 +351,7 @@ export default class SmartJournalPlugin extends Plugin {
       });
     }
 
-    this.addSettingTab(new SmartJournalSettingTab(this.app, this));
+    this.addSettingTab(new MemexSettingTab(this.app, this));
   }
 
   async activateView() {
@@ -400,10 +400,10 @@ export default class SmartJournalPlugin extends Plugin {
   }
 }
 
-class SmartJournalSettingTab extends PluginSettingTab {
-  plugin: SmartJournalPlugin;
+class MemexSettingTab extends PluginSettingTab {
+  plugin: MemexPlugin;
 
-  constructor(app: App, plugin: SmartJournalPlugin) {
+  constructor(app: App, plugin: MemexPlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
@@ -413,7 +413,7 @@ class SmartJournalSettingTab extends PluginSettingTab {
 
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "Smart Journal Settings" });
+    containerEl.createEl("h2", { text: "Memex Settings" });
 
     // ── Provider Selection ──────────────────────────────────────────────
     new Setting(containerEl)

@@ -1,10 +1,10 @@
 {
-	"id": "smart-journal",
-	"name": "Smart Journal",
+	"id": "memex",
+	"name": "Memex",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "A smart journal plugin that uses local LLMs to tag notes, summarize weeks, and extract action items.",
+	"description": "An AI-powered knowledge companion for Obsidian — auto-tag notes, summarize your week, extract action items, and chat with your vault using RAG.",
 	"author": "Sketched",
-	"authorUrl": "https://github.com/manas-33/smart-journal",
+	"authorUrl": "https://github.com/manas-33/memex",
 	"isDesktopOnly": false
 }

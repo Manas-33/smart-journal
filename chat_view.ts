@@ -17,7 +17,7 @@ import { ConversationManager, Conversation, Message } from "./conversation_manag
 // @ts-ignore
 import html2pdf from "html2pdf.js";
 
-export const VIEW_TYPE_CHAT = "smart-journal-chat-view";
+export const VIEW_TYPE_CHAT = "memex-chat-view";
 
 export class ChatView extends ItemView {
   private llmService: LLMService;
@@ -52,18 +52,18 @@ export class ChatView extends ItemView {
 
   async onOpen() {
     this.containerEl.empty();
-    this.containerEl.addClass("smart-journal-chat-view");
+    this.containerEl.addClass("memex-chat-view");
 
     // Main Layout: Sidebar + Chat Area
     const mainLayout = this.containerEl.createEl("div", {
-      cls: "smart-journal-main-layout",
+      cls: "memex-main-layout",
     });
     mainLayout.style.display = "flex";
     mainLayout.style.height = "100%";
 
     // Sidebar
     this.sidebarContainer = mainLayout.createEl("div", {
-      cls: "smart-journal-sidebar",
+      cls: "memex-sidebar",
     });
     this.sidebarContainer.style.width = "250px";
     this.sidebarContainer.style.minWidth = "150px";
@@ -76,7 +76,7 @@ export class ChatView extends ItemView {
     this.sidebarContainer.style.overflow = "hidden";
 
     // Resizer
-    const resizer = mainLayout.createEl("div", { cls: "smart-journal-resizer" });
+    const resizer = mainLayout.createEl("div", { cls: "memex-resizer" });
     resizer.style.width = "5px";
     resizer.style.cursor = "col-resize";
     resizer.style.backgroundColor = "transparent";
@@ -117,7 +117,7 @@ export class ChatView extends ItemView {
 
     // Chat Area
     const chatArea = mainLayout.createEl("div", {
-      cls: "smart-journal-chat-area",
+      cls: "memex-chat-area",
     });
     chatArea.style.flex = "1";
     chatArea.style.display = "flex";
@@ -479,7 +479,7 @@ export class ChatView extends ItemView {
           // Capture the contentContainer, not the full overlay
           const pdfData = await html2pdf().from(contentContainer).set(opt as any).output('arraybuffer');
           
-          const folderPath = "Smart Journal/PDFs";
+          const folderPath = "Memex/PDFs";
           if (!await this.app.vault.adapter.exists(folderPath)) {
               await this.app.vault.createFolder(folderPath);
           }
@@ -980,7 +980,7 @@ export class ChatView extends ItemView {
   async exportMessageToNote(message: Message) {
       const defaultName = `Chat Export ${new Date().toISOString().replace(/[:.]/g, "-")}`;
       new ExportModal(this.app, defaultName, async (fileName) => {
-          const folderPath = "Smart Journal/Exports";
+          const folderPath = "Memex/Exports";
           if (!await this.app.vault.adapter.exists(folderPath)) {
               await this.app.vault.createFolder(folderPath);
           }
@@ -1076,7 +1076,7 @@ export class ExportModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.createEl("h2", { text: "Export to Note" });
-    contentEl.createEl("p", { text: "File will be saved in 'Smart Journal/Exports'" });
+    contentEl.createEl("p", { text: "File will be saved in 'Memex/Exports'" });
 
     let fileName = this.defaultName;
 
